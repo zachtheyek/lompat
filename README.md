@@ -37,6 +37,34 @@ paper: *Scientific Data* 13, 190 (2026).
 - "Frog" / "katak" is Malaysian political slang for a party-hopper; the framing is
   descriptive, not a judgement of any individual's reasons.
 
+## Labels
+
+Every politician carries up to two labels.
+
+**1. Katak tier** — by number of party-switches (hops):
+
+| Hops | Label | Colour |
+|------|-------|--------|
+| 0 | **Loyalist** 💍 | green |
+| 1–3 | **Katak** 🐸 | pink-red |
+| 4+ | **Super-katak** 🐸 | purple |
+
+**2. Landing tier** — by *jump win-rate*, i.e. the share of a politician's hops that
+landed them an election win (only assigned to those with ≥1 hop):
+
+| Win-rate | Label |
+|----------|-------|
+| > 50% | 🟢 **Soft landing** |
+| 1–50% | 🟡 **Bumpy landing** |
+| 0% | 🔴 **Crash landing** |
+
+**How a single hop is scored W or L (the "hybrid" rule):** a hop is a **win** if the
+candidate won their first contest under the new party, otherwise a **loss** — so every
+hop gets a verdict. Where the party the candidate *left* also contested that very seat,
+we additionally flag the clean head-to-head result ("beat their former party" / "former
+party won this seat"). The home leaderboard's **Best & worst-timed** view ranks ≥2-hop
+politicians by this win-rate (sortable for biggest winners or biggest losers).
+
 ## Build
 
 ```bash

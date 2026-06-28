@@ -20,8 +20,9 @@ function pill(p) {
 // drawn chevron (the → glyph isn't in the font subset, so it would render as tofu)
 const chev = `<div style="display:flex;width:12px;height:12px;border-top:3px solid #5d6678;border-right:3px solid #5d6678;transform:rotate(45deg);margin:0 16px 10px 6px"></div>`;
 function card(rec) {
-  const parties = rec.parties.slice(0, 7);
-  const extra = rec.parties.length - parties.length;
+  const full = rec.path || rec.parties;  // full trajectory (incl. returns), not just distinct
+  const parties = full.slice(0, 7);
+  const extra = full.length - parties.length;
   const path = parties.map((p, i) => (i ? chev : "") + pill(p)).join("") +
     (extra > 0 ? `<div style="display:flex;align-items:center;color:#8b95a7;font-size:24px;margin-bottom:10px">+${extra} more</div>` : "");
   return html(`

@@ -12,7 +12,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 
 function page(c) {
   const desc = c.n_switches > 0
-    ? `${c.name} has switched parties ${c.n_switches} time${c.n_switches > 1 ? "s" : ""} across ${c.n_parties} parties: ${c.parties.join(" → ")}. ${c.first_year}–${c.last_year}.`
+    ? `${c.name} has switched parties ${c.n_switches} time${c.n_switches > 1 ? "s" : ""} across ${c.n_parties} parties: ${(c.path || c.parties).join(" → ")}. ${c.first_year}–${c.last_year}.`
     : `${c.name} contested ${c.n_contests} elections (${c.first_year}–${c.last_year}) and never switched party (${c.parties[0]}).`;
   const title = `${c.name} — party trajectory · Lompat`;
   const meta = `
