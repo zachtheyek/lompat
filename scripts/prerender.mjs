@@ -33,10 +33,11 @@ function page(c) {
   return base.replace("</head>", meta + "\n  </head>");
 }
 
-const lb = JSON.parse(readFileSync("public/data/leaderboard.json", "utf8"));
+const slugs = JSON.parse(readFileSync("public/data/og_list.json", "utf8"));
+const limit = process.env.OG_LIMIT ? parseInt(process.env.OG_LIMIT, 10) : slugs.length;
 let n = 0;
-for (const rec of lb.top.slice(0, 300)) {
-  const c = JSON.parse(readFileSync(join("public/data/cand", rec.slug + ".json"), "utf8"));
+for (const slug of slugs.slice(0, limit)) {
+  const c = JSON.parse(readFileSync(join("public/data/cand", slug + ".json"), "utf8"));
   const dir = join("dist", "p", c.slug);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "index.html"), page(c));

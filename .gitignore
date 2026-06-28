@@ -2,3 +2,11 @@ node_modules/
 dist/
 .DS_Store
 *.log
+
+# Data is generated from the MECo foundation at build time (locally: `npm run data`;
+# in CI: the deploy workflow). Not committed — keeps the repo light and self-updating.
+public/data/
+
+# iCloud/Dropbox conflict copies
+* [0-9].json
+* [0-9].png

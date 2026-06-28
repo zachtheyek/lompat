@@ -6,8 +6,12 @@ trajectory across the elections they contested, detecting party switches
 (party *renames* are collapsed via the succession table, so a rename is NOT a hop).
 
 Output:
-  public/data/index.json            # all candidates (searchable)
-  public/data/leaderboard.json      # top switchers + national stats
+  public/data/index.json            # all multi-contest candidates (searchable)
+  public/data/leaderboard.json      # home page: top switchers, routes, organized
+                                     # moves, inflows/outflows, by-year, stats
+  public/data/loyal.json            # loyalists (>=3 contests) by career win-rate
+  public/data/veterans.json         # longest-serving (most elections contested)
+  public/data/events.json           # member slug lists per route / organized move
   public/data/cand/<slug>.json      # full trajectory per multi-contest candidate
 """
 from __future__ import annotations
@@ -18,6 +22,8 @@ import pandas as pd
 FOUND = Path("../meco-data/out")
 OUT = Path("public/data")
 (OUT / "cand").mkdir(parents=True, exist_ok=True)
+
+ORGANIZED_MIN = 5   # an "organized move" = >=5 candidates joining one party in one election
 
 b = pd.read_parquet(FOUND / "ballots.parquet")
 succ = pd.read_parquet(FOUND / "lookup_party_succession.parquet")
@@ -52,22 +58,28 @@ b["won_bool"] = b["result"].str.startswith("won")
 contest_winner = b[b["won_bool"]].groupby(["date", "seat_key"])["pcanon"].first().to_dict()
 contest_parties = b.groupby(["date", "seat_key"])["pcanon"].apply(set).to_dict()
 
-index, routes = [], {}
-n_files = 0
+index = []
+routes = {}              # (from_name, to_name) -> {"n":int, "wins":int, "members":{slug:win}}
+moves = {}               # (to_name, year) -> {"n":int, "wins":int, "members":{slug:win}}
+inflow, outflow = {}, {} # party_name -> hop count
 switch_years = {}
+n_files = 0
 
 for uid, g in b.groupby("candidate_uid"):
     g = g.drop_duplicates(subset=["date", "seat"])  # one row per contest
     name = g["name"].iloc[0]
     sex = g["sex"].iloc[0]
+    slug = f"{slugify(name)}-{uid.lower()}"
     contests = []
     prev = None
     switches = []
     path = []          # sequential trajectory, collapsing only *consecutive* repeats
-    n_wins = 0         # number of hops where the candidate won under the new party
+    seen = set()       # canonical parties held so far (for boomerang detection)
+    n_wins = n_returns = n_cross = career_wins = 0
     for _, r in g.iterrows():
         hop = prev is not None and r["pcanon"] != prev["pcanon"]
-        if prev is None or r["pcanon"] != prev["pcanon"]:
+        career_wins += int(bool(r["won_bool"]))
+        if prev is None or hop:
             path.append(r["pcanon_name"])
         contests.append({
             "year": int(r["year"]), "election": r["election"], "date": r["date"],
@@ -79,25 +91,35 @@ for uid, g in b.groupby("candidate_uid"):
         })
         if hop:
             frm, to = prev["pcanon_name"], r["pcanon_name"]
-            won = bool(r["won_bool"])
+            won = bool(r["won_bool"]); yr = int(r["year"])
             n_wins += won
+            crossed = bool(prev["coalition"] != r["coalition"])
+            n_cross += crossed
+            is_return = r["pcanon"] in seen
+            n_returns += is_return
             key = (r["date"], r["seat_key"])
             old_uid = prev["pcanon"]
             vs_old = None  # clean head-to-head against the party just left, same seat
             if old_uid in contest_parties.get(key, set()):
-                if won:
-                    vs_old = "beat"
-                elif contest_winner.get(key) == old_uid:
-                    vs_old = "lost_to"
-            switches.append({"year": int(r["year"]), "from": frm, "to": to,
-                             "cross_coalition": bool(prev["coalition"] != r["coalition"]),
-                             "win": won, "vs_old": vs_old})
-            routes[(frm, to)] = routes.get((frm, to), 0) + 1
-            switch_years[int(r["year"])] = switch_years.get(int(r["year"]), 0) + 1
+                vs_old = "beat" if won else ("lost_to" if contest_winner.get(key) == old_uid else None)
+            switches.append({"year": yr, "from": frm, "to": to, "cross_coalition": crossed,
+                             "win": won, "vs_old": vs_old, "return": is_return})
+            # aggregates
+            rt = routes.setdefault((frm, to), {"n": 0, "wins": 0, "members": {}})
+            rt["n"] += 1
+            if slug not in rt["members"]:
+                rt["members"][slug] = won; rt["wins"] += int(won)
+            if to != "BEBAS":  # becoming independent is not "joining a central party"
+                mv = moves.setdefault((to, yr), {"n": 0, "wins": 0, "members": {}})
+                if slug not in mv["members"]:
+                    mv["members"][slug] = won; mv["n"] += 1; mv["wins"] += int(won)
+            inflow[to] = inflow.get(to, 0) + 1
+            outflow[frm] = outflow.get(frm, 0) + 1
+            switch_years[yr] = switch_years.get(yr, 0) + 1
+        seen.add(r["pcanon"])
         prev = r
     n_parties = g["pcanon"].nunique()
     n_switches = len(switches)
-    slug = f"{slugify(name)}-{uid.lower()}"
     rec = {
         "uid": uid, "slug": slug, "name": name, "sex": sex,
         "n_contests": len(g), "n_parties": int(n_parties), "n_switches": n_switches,
@@ -108,6 +130,9 @@ for uid, g in b.groupby("candidate_uid"):
         "wins": [s["win"] for s in switches],
         "n_wins": n_wins,
         "win_rate": (round(n_wins / n_switches, 4) if n_switches else None),
+        "n_returns": n_returns,
+        "n_cross": n_cross,
+        "career_win_rate": round(career_wins / len(g), 4),
     }
     index.append(rec)
     if len(g) >= 2:  # only multi-contest candidates get a trajectory file
@@ -116,31 +141,87 @@ for uid, g in b.groupby("candidate_uid"):
         n_files += 1
 
 index.sort(key=lambda x: (-x["n_switches"], -x["n_parties"], x["name"]))
-# Search index: only multi-contest candidates (single-contest people can't have hopped),
-# slim fields to keep it light on mobile.
+
+# ---- search index (multi-contest only; slim for mobile) ----
 slim = [{"s": x["slug"], "n": x["name"], "c": x["n_contests"], "h": x["n_switches"],
          "p": x["n_parties"], "lp": x["last_party"], "y0": x["first_year"], "y1": x["last_year"],
-         "wr": x["win_rate"], "nw": x["n_wins"]}
+         "wr": x["win_rate"], "nw": x["n_wins"], "cwr": x["career_win_rate"]}
         for x in index if x["n_contests"] >= 2]
 (OUT / "index.json").write_text(json.dumps(slim, separators=(",", ":")))
 
+# ---- home leaderboard ----
 switchers = [x for x in index if x["n_switches"] > 0]
-# Trim each leaderboard record to just what the home page renders (rows + OG cards),
-# so shipping ALL switchers (for "see all") stays light.
 LB_KEYS = ("slug", "name", "n_switches", "n_parties", "first_year", "last_year",
-           "parties", "path", "wins", "n_wins", "win_rate")
+           "parties", "path", "wins", "n_wins", "win_rate", "n_returns", "n_cross",
+           "career_win_rate")
 lb_top = [{k: x[k] for k in LB_KEYS} for x in switchers]
-top_routes = sorted(routes.items(), key=lambda kv: -kv[1])[:25]
+
+top_routes = sorted(routes.items(), key=lambda kv: -kv[1]["n"])[:25]
+routes_out = [{"id": f"r|{frm}|{to}", "from": frm, "to": to, "n": d["n"], "wins": d["wins"],
+               "members": len(d["members"])}
+              for (frm, to), d in top_routes]
+
+org = sorted(((k, v) for k, v in moves.items() if len(v["members"]) >= ORGANIZED_MIN),
+             key=lambda kv: -len(kv[1]["members"]))
+events_out = [{"id": f"m|{to}|{yr}", "to": to, "year": yr,
+               "n": len(d["members"]), "wins": d["wins"]}
+              for (to, yr), d in org]
+
+inflows = sorted(inflow.items(), key=lambda kv: -kv[1])[:5]
+outflows = sorted(outflow.items(), key=lambda kv: -kv[1])[:5]
+
 leaderboard = {
     "top": lb_top,
     "n_switchers": len(switchers),
     "n_candidates": len(index),
     "total_switches": int(sum(x["n_switches"] for x in index)),
-    "routes": [{"from": k[0], "to": k[1], "n": v} for k, v in top_routes],
+    "routes": routes_out,
+    "events": events_out,
+    "inflows": [{"party": p, "n": n} for p, n in inflows],
+    "outflows": [{"party": p, "n": n} for p, n in outflows],
     "by_year": [{"year": y, "n": switch_years[y]} for y in sorted(switch_years)],
 }
 (OUT / "leaderboard.json").write_text(json.dumps(leaderboard, separators=(",", ":")))
 
+# ---- event detail (lazy-loaded on event pages): self-contained meta + members ----
+events_full = {}
+for (frm, to), d in top_routes:
+    events_full[f"r|{frm}|{to}"] = {
+        "type": "r", "from": frm, "to": to, "n": len(d["members"]), "wins": d["wins"],
+        "members": [{"s": s, "w": int(w)} for s, w in d["members"].items()]}
+for (to, yr), d in org:
+    events_full[f"m|{to}|{yr}"] = {
+        "type": "m", "to": to, "year": yr, "n": len(d["members"]), "wins": d["wins"],
+        "members": [{"s": s, "w": int(w)} for s, w in d["members"].items()]}
+(OUT / "events.json").write_text(json.dumps(events_full, separators=(",", ":")))
+
+# ---- loyalists by career win-rate (lazy; "Loyal & true" board) ----
+loyal = [{"slug": x["slug"], "name": x["name"], "party": x["last_party"],
+          "n_contests": x["n_contests"], "win_rate": x["career_win_rate"],
+          "first_year": x["first_year"], "last_year": x["last_year"]}
+         for x in index if x["n_switches"] == 0 and x["n_contests"] >= 3]
+loyal.sort(key=lambda x: (-x["win_rate"], -x["n_contests"], x["name"]))
+(OUT / "loyal.json").write_text(json.dumps(loyal, separators=(",", ":")))
+
+# ---- veterans / longevity (lazy; "Veterans" board) ----
+veterans = sorted(index, key=lambda x: (-x["n_contests"], -(x["last_year"] - x["first_year"]), x["name"]))[:300]
+vets_out = [{"slug": x["slug"], "name": x["name"], "path": x["path"], "wins": x["wins"],
+             "n_contests": x["n_contests"], "n_switches": x["n_switches"],
+             "first_year": x["first_year"], "last_year": x["last_year"]}
+            for x in veterans]
+(OUT / "veterans.json").write_text(json.dumps(vets_out, separators=(",", ":")))
+
+# ---- which candidates get a prerendered page + OG card (shareable) ----
+# every switcher, plus loyalists with a real career (>=4 elections) so prominent
+# loyalists (e.g. PMs) get a share card too. The obscure 2–3-contest tail falls back.
+og_slugs = [x["slug"] for x in switchers] + \
+           [x["slug"] for x in index if x["n_switches"] == 0 and x["n_contests"] >= 4]
+(OUT / "og_list.json").write_text(json.dumps(og_slugs, separators=(",", ":")))
+
 print(f"candidates: {len(index):,}  | switchers: {len(switchers):,}  | trajectory files: {n_files:,}")
 print(f"total switches: {leaderboard['total_switches']:,}")
+print(f"organized moves (>={ORGANIZED_MIN}): {len(events_out)}  | loyalists(>=3): {len(loyal):,}")
 print("top frog:", switchers[0]["name"], switchers[0]["n_switches"], "switches across", switchers[0]["parties"])
+print("biggest organized move:", events_out[0] if events_out else None)
+print("inflows:", [f"{p['party']}={p['n']}" for p in leaderboard["inflows"]])
+print("outflows:", [f"{p['party']}={p['n']}" for p in leaderboard["outflows"]])

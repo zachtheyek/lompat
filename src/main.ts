@@ -7,16 +7,22 @@ import { partyColor } from "./colors";
 const BASE = import.meta.env.BASE_URL;
 const app = document.getElementById("app")!;
 
-interface Slim { s: string; n: string; c: number; h: number; p: number; lp: string; y0: number; y1: number; wr: number | null; nw: number; }
+interface Slim { s: string; n: string; c: number; h: number; p: number; lp: string; y0: number; y1: number; wr: number | null; nw: number; cwr: number; }
 interface Contest { year: number; election: string; date: string; seat: string; state: string; party: string; party_canon: string; coalition: string | null; result: string; votes_perc: number | null; hop: boolean; }
-interface Switch { year: number; from: string; to: string; cross_coalition: boolean; win: boolean; vs_old: "beat" | "lost_to" | null; }
-interface Cand { uid: string; slug: string; name: string; sex: string; n_contests: number; n_parties: number; n_switches: number; first_year: number; last_year: number; last_party: string; parties: string[]; path: string[]; wins: boolean[]; n_wins: number; win_rate: number | null; contests: Contest[]; switches: Switch[]; }
-interface LBRec { slug: string; name: string; n_switches: number; n_parties: number; first_year: number; last_year: number; parties: string[]; path: string[]; wins: boolean[]; n_wins: number; win_rate: number | null; }
-interface LB { top: LBRec[]; n_switchers: number; n_candidates: number; total_switches: number; routes: { from: string; to: string; n: number }[]; by_year: { year: number; n: number }[]; }
+interface Switch { year: number; from: string; to: string; cross_coalition: boolean; win: boolean; vs_old: "beat" | "lost_to" | null; return: boolean; }
+interface Cand { uid: string; slug: string; name: string; sex: string; n_contests: number; n_parties: number; n_switches: number; first_year: number; last_year: number; last_party: string; parties: string[]; path: string[]; wins: boolean[]; n_wins: number; win_rate: number | null; n_returns: number; n_cross: number; career_win_rate: number; contests: Contest[]; switches: Switch[]; }
+interface LBRec { slug: string; name: string; n_switches: number; n_parties: number; first_year: number; last_year: number; parties: string[]; path: string[]; wins: boolean[]; n_wins: number; win_rate: number | null; n_returns: number; n_cross: number; career_win_rate: number; }
+interface Route { id: string; from: string; to: string; n: number; wins: number; members: number; }
+interface Move { id: string; to: string; year: number; n: number; wins: number; }
+interface LB { top: LBRec[]; n_switchers: number; n_candidates: number; total_switches: number; routes: Route[]; events: Move[]; inflows: { party: string; n: number }[]; outflows: { party: string; n: number }[]; by_year: { year: number; n: number }[]; }
+interface Loyal { slug: string; name: string; party: string; n_contests: number; win_rate: number; first_year: number; last_year: number; }
+interface Vet { slug: string; name: string; path: string[]; wins: boolean[]; n_contests: number; n_switches: number; first_year: number; last_year: number; }
+interface EventDetail { type: "m" | "r"; from?: string; to: string; year?: number; n: number; wins: number; members: { s: string; w: number }[]; }
 
 const esc = (s: string) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
 const dot = (c: string) => `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${c}"></span>`;
 const pchip = (p: string) => `<span class="pchip" style="background:${partyColor(p)}">${esc(p)}</span>`;
+const pct = (x: number) => Math.round(x * 100);
 
 // ---- labels ----
 // katak tier by hop count: 0 = loyalist, 1–3 = katak, 4+ = super-katak.
@@ -25,18 +31,19 @@ function katakLabel(h: number) {
   if (h >= 4) return { txt: "Super-katak", emoji: "🐸", cls: "superkatak" };
   return { txt: "Katak", emoji: "🐸", cls: "katak" };
 }
-// timing tier by jump win-rate (share of hops that landed a win); null for loyalists.
-function timingLabel(wr: number | null) {
+// landing tier by win-rate. >60% soft, 25–60% bumpy, <25% crash.
+function landing(wr: number | null) {
   if (wr == null) return null;
-  if (wr > 0.5) return { txt: "Soft landing", emoji: "🟢", cls: "soft" };
-  if (wr > 0) return { txt: "Bumpy landing", emoji: "🟡", cls: "bumpy" };
+  if (wr > 0.6) return { txt: "Soft landing", emoji: "🟢", cls: "soft" };
+  if (wr >= 0.25) return { txt: "Bumpy landing", emoji: "🟡", cls: "bumpy" };
   return { txt: "Crash landing", emoji: "🔴", cls: "crash" };
 }
+const landingCls = (wr: number | null) => landing(wr)?.cls ?? "";
 const katakBadge = (h: number) => { const k = katakLabel(h); return `<span class="kbadge ${k.cls}">${k.emoji} ${h}</span>`; };
-const timingBadge = (wr: number | null) => { const t = timingLabel(wr); return t ? `<span class="tbadge ${t.cls}" title="${t.txt} · ${Math.round(wr! * 100)}% of jumps won">${Math.round(wr! * 100)}%</span>` : ""; };
+const timingBadge = (wr: number | null) => { const t = landing(wr); return t ? `<span class="tbadge ${t.cls}" title="${t.txt} · ${pct(wr!)}% of jumps won">${pct(wr!)}%</span>` : ""; };
 
 // path renderer: full sequential trajectory; if `wins` supplied, a W/L mark sits above each arrow.
-function pathHtml(path: string[], wins?: boolean[]) {
+function pathHtml(path: string[], wins?: boolean[] | null) {
   return path.map((p, j) => {
     let arrow = "";
     if (j) arrow = wins
@@ -46,15 +53,40 @@ function pathHtml(path: string[], wins?: boolean[]) {
   }).join("");
 }
 
-let INDEX: Slim[] | null = null;
-async function loadIndex() { if (!INDEX) INDEX = await fetch(`${BASE}data/index.json`).then((r) => r.json()); return INDEX!; }
-async function loadLB(): Promise<LB> { return fetch(`${BASE}data/leaderboard.json`).then((r) => r.json()); }
+// generic leaderboard / member row
+function cardRow(slug: string, name: string, path: string[], wins: boolean[] | null, rank: number, num: string, sub: string, cls = "") {
+  return `<div class="row" data-slug="${slug}">
+      <div class="rank">${rank}</div>
+      <div class="who"><div class="nm">${esc(name)}</div><div class="path">${pathHtml(path, wins)}</div></div>
+      <div class="hops"><span class="num ${cls}">${num}</span><span class="lbl">${sub}</span></div>
+    </div>`;
+}
+
+// ---- data caches ----
+let INDEX: Slim[] | null = null, LB: LB | null = null, LOYAL: Loyal[] | null = null, VETS: Vet[] | null = null, EVENTS: Record<string, EventDetail> | null = null, CARDMAP: Map<string, LBRec> | null = null;
+const j = (f: string) => fetch(`${BASE}data/${f}`).then((r) => { if (!r.ok) throw new Error("404"); return r.json(); });
+async function loadIndex() { if (!INDEX) INDEX = await j("index.json"); return INDEX!; }
+async function loadLB() { if (!LB) { LB = await j("leaderboard.json"); CARDMAP = new Map(LB!.top.map((r) => [r.slug, r])); } return LB!; }
+async function loadLoyal() { if (!LOYAL) LOYAL = await j("loyal.json"); return LOYAL!; }
+async function loadVets() { if (!VETS) VETS = await j("veterans.json"); return VETS!; }
+async function loadEvents() { if (!EVENTS) EVENTS = await j("events.json"); return EVENTS!; }
 async function loadCand(slug: string): Promise<Cand> {
   const pre = (window as any).__CAND__;
   if (pre && pre.slug === slug) return pre;
-  return fetch(`${BASE}data/cand/${slug}.json`).then((r) => { if (!r.ok) throw new Error("404"); return r.json(); });
+  return j(`cand/${slug}.json`);
 }
+
 function go(path: string) { history.pushState({}, "", BASE + path); route(); }
+const enc = encodeURIComponent, dec = decodeURIComponent;
+function eventUrl(id: string) {
+  const [t, a, b] = id.split("|");
+  return `e/${t}/${enc(a)}/${enc(b)}/`;
+}
+
+// ---- leaderboard UI state (preserved across a card visit; reset by the logo) ----
+const lbState = { mode: "jumps", level: 25 as number, sortDir: "desc" as "desc" | "asc", scrollY: 0 };
+let restoreScroll = false;
+function resetHome() { lbState.mode = "jumps"; lbState.level = 25; lbState.sortDir = "desc"; lbState.scrollY = 0; }
 
 // ---- toast ----
 function toast(msg: string) {
@@ -66,30 +98,33 @@ function toast(msg: string) {
   (t as any)._h = setTimeout(() => t!.classList.remove("show"), 2600);
 }
 
-function getSlug() {
-  const m = location.pathname.match(/\/p\/([^/]+)/);
-  return m ? decodeURIComponent(m[1]) : new URLSearchParams(location.search).get("c");
+function getRoute() {
+  const p = location.pathname;
+  let m = p.match(/\/e\/m\/([^/]+)\/([^/]+)/);
+  if (m) return { type: "event" as const, key: `m|${dec(m[1])}|${dec(m[2])}` };
+  m = p.match(/\/e\/r\/([^/]+)\/([^/]+)/);
+  if (m) return { type: "event" as const, key: `r|${dec(m[1])}|${dec(m[2])}` };
+  m = p.match(/\/p\/([^/]+)/);
+  if (m) return { type: "cand" as const, slug: dec(m[1]) };
+  const c = new URLSearchParams(location.search).get("c");
+  if (c) return { type: "cand" as const, slug: c };
+  return { type: "home" as const };
 }
 async function route() {
-  const slug = getSlug();
-  if (slug) return renderCand(slug);
+  const r = getRoute();
+  if (r.type === "cand") return renderCand(r.slug);
+  if (r.type === "event") return renderEvent(r.key);
   renderHome();
 }
 window.addEventListener("popstate", route);
 
-// ordered-token match: every query token must appear, in order, as a substring of the
-// name (partial/prefix ok). "azmin ali" & "azmi al" match "…azmin bin ali"; "ali azmin" doesn't.
+// ordered-token match: every query token must appear, in order, as a substring of the name.
 function matchTokens(name: string, toks: string[]): boolean {
   let pos = 0;
-  for (const t of toks) {
-    const i = name.indexOf(t, pos);
-    if (i < 0) return false;
-    pos = i + t.length;
-  }
+  for (const t of toks) { const i = name.indexOf(t, pos); if (i < 0) return false; pos = i + t.length; }
   return true;
 }
 
-// ---- shared search wiring ----
 function wireSearch(input: HTMLInputElement, acEl: HTMLElement) {
   let active = -1, hits: Slim[] = [];
   const close = () => { acEl.innerHTML = ""; active = -1; };
@@ -119,7 +154,7 @@ function wireSearch(input: HTMLInputElement, acEl: HTMLElement) {
 
 function wireLogo() {
   const el = document.getElementById("home");
-  if (el) el.onclick = (e) => { e.preventDefault(); go(""); };
+  if (el) el.onclick = (e) => { e.preventDefault(); resetHome(); go(""); };
 }
 
 function header() {
@@ -130,26 +165,35 @@ function header() {
   </div></header>`;
 }
 
+// ---- Tufte-style hops-by-year chart ----
+function yearChart(by_year: { year: number; n: number }[]): string {
+  const W = 720, H = 188, padL = 8, padR = 8, padT = 30, padB = 22;
+  const y0 = 1955, y1 = Math.max(...by_year.map((d) => d.year));
+  const maxN = Math.max(...by_year.map((d) => d.n));
+  const peak = by_year.reduce((a, b) => (b.n > a.n ? b : a));
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const x = (yr: number) => padL + (yr - y0) / (y1 - y0) * innerW;
+  const bw = Math.max(2.5, innerW / (y1 - y0) * 0.62);
+  const baseY = padT + innerH;
+  const bars = by_year.filter((d) => d.n > 0).map((d) => {
+    const h = d.n / maxN * innerH, isPeak = d.year === peak.year;
+    return `<rect x="${(x(d.year) - bw / 2).toFixed(1)}" y="${(baseY - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="1" fill="${isPeak ? "var(--accent)" : "#3a4456"}"></rect>`;
+  }).join("");
+  // direct label on the peak; range-frame baseline; first/last/peak year ticks only
+  const peakX = x(peak.year), peakH = peak.n / maxN * innerH;
+  const labels = `
+    <text x="${peakX}" y="${(baseY - peakH - 9).toFixed(1)}" text-anchor="middle" class="yc-peak">${peak.n} hops · ${peak.year}</text>
+    <line x1="${padL}" y1="${baseY}" x2="${padL + innerW}" y2="${baseY}" class="yc-base"></line>
+    <text x="${padL}" y="${H - 6}" text-anchor="start" class="yc-tick">${y0}</text>
+    <text x="${peakX}" y="${H - 6}" text-anchor="middle" class="yc-tick">${peak.year}</text>
+    <text x="${padL + innerW}" y="${H - 6}" text-anchor="end" class="yc-tick">${y1}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" class="yearchart" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Party-hops by election year, peaking at ${peak.year}">${bars}${labels}</svg>`;
+}
+
 // ---------- HOME ----------
 async function renderHome() {
   document.title = "Lompat — Malaysia's political frogs, on the record";
   const lb = await loadLB();
-  const maxYear = Math.max(...lb.by_year.map((d) => d.n));
-  const yearStart = 1955, yearEnd = Math.max(...lb.by_year.map((d) => d.year));
-  const byYearMap = new Map(lb.by_year.map((d) => [d.year, d.n]));
-  const years = [];
-  for (let y = yearStart; y <= yearEnd; y++) years.push(y);
-
-  const rowJumps = (rec: LBRec, i: number) => `<div class="row" data-slug="${rec.slug}">
-      <div class="rank">${i + 1}</div>
-      <div class="who"><div class="nm">${esc(rec.name)}</div><div class="path">${pathHtml(rec.path)}</div></div>
-      <div class="hops"><span class="num">${rec.n_switches}</span><span class="lbl">hops</span></div>
-    </div>`;
-  const rowTimed = (rec: LBRec, i: number) => `<div class="row" data-slug="${rec.slug}">
-      <div class="rank">${i + 1}</div>
-      <div class="who"><div class="nm">${esc(rec.name)}</div><div class="path">${pathHtml(rec.path, rec.wins)}</div></div>
-      <div class="hops"><span class="num win">${Math.round(rec.win_rate! * 100)}<span class="pct">%</span></span><span class="lbl">${rec.n_wins}/${rec.n_switches} won</span></div>
-    </div>`;
 
   app.innerHTML = `${header()}
   <main>
@@ -162,14 +206,11 @@ async function renderHome() {
       <div class="stats">
         <div class="stat"><div class="v">${lb.n_switchers.toLocaleString()}</div><div class="l">politicians have hopped at least once</div></div>
         <div class="stat"><div class="v">${lb.total_switches.toLocaleString()}</div><div class="l">total party-hops recorded</div></div>
-        <div class="stat"><div class="v">${Math.round(lb.n_switchers / lb.n_candidates * 100)}%</div><div class="l">of repeat candidates have hopped</div></div>
+        <div class="stat"><div class="v">${pct(lb.n_switchers / lb.n_candidates)}%</div><div class="l">of repeat candidates have hopped</div></div>
       </div>
 
-      <div class="section-title">🏆 The Katak Leaderboard</div>
-      <div class="lbtoggle" id="lbtoggle">
-        <button data-mode="jumps" class="active">Most jumps</button>
-        <button data-mode="timed">Best &amp; worst-timed</button>
-      </div>
+      <div class="section-title">🏆 The Katak Leaderboards</div>
+      <div class="lbtoggle" id="lbtoggle"></div>
       <div class="section-sub" id="lbsub"></div>
       <div class="sortrow" id="sortrow" hidden><button id="sortbtn"></button></div>
       <div class="lb" id="lb"></div>
@@ -177,12 +218,26 @@ async function renderHome() {
 
       <div class="two" style="margin-top:30px">
         <div class="card"><h3>Most-travelled routes</h3>
-          ${lb.routes.slice(0, 10).map((r) => `<div class="route">${pchip(r.from)}<span class="arrow">→</span>${pchip(r.to)}<span class="n">${r.n}</span></div>`).join("")}
+          ${lb.routes.slice(0, 10).map((r) => `<div class="route" data-ev="${r.id}">${pchip(r.from)}<span class="arrow">→</span>${pchip(r.to)}<span class="n">${r.n}</span></div>`).join("")}
+          <div class="cardnote">Tap a route to see everyone who made it.</div>
         </div>
-        <div class="card"><h3>Hops by year</h3>
-          <div class="yearbars">${years.map((y) => { const n = byYearMap.get(y) || 0; return `<div class="b" style="height:${Math.max(2, n / maxYear * 100)}%" title="${y}: ${n} hops"></div>`; }).join("")}</div>
-          <div class="yearaxis"><span>${yearStart}</span><span>2008</span><span>${yearEnd}</span></div>
+        <div class="card"><h3>Where the frogs go</h3>
+          <div class="flow"><div class="flow-h">Most hopped <b>to</b></div>${lb.inflows.map((r) => `<div class="route">${pchip(r.party)}<span class="n">${r.n}</span></div>`).join("")}</div>
+          <div class="flow"><div class="flow-h">Most hopped <b>from</b></div>${lb.outflows.map((r) => `<div class="route">${pchip(r.party)}<span class="n">${r.n}</span></div>`).join("")}</div>
         </div>
+      </div>
+
+      <div class="section-title" style="margin-top:30px">🪷 Biggest organized hops</div>
+      <div class="section-sub">Elections where ${5}+ candidates jumped into the same party at once — splits, defection waves, new-party launches. Tap to see who.</div>
+      <div class="lb">${lb.events.slice(0, 8).map((e) => `<div class="row ev" data-ev="${e.id}">
+        <div class="who"><div class="nm">${esc(e.to)} <span class="evyear">${e.year}</span></div><div class="evsub">${e.n} candidates jumped in · ${pct(e.wins / e.n)}% won their seat</div></div>
+        <div class="hops"><span class="num">${e.n}</span><span class="lbl">jumpers</span></div>
+      </div>`).join("")}</div>
+
+      <div class="card" style="margin-top:30px">
+        <h3>Hops by year</h3>
+        <div class="cardnote" style="margin:-6px 0 8px">Each bar is one election year. Party-hopping spikes when coalitions realign.</div>
+        ${yearChart(lb.by_year)}
       </div>
     </div>
     ${footer()}
@@ -191,57 +246,146 @@ async function renderHome() {
   wireSearch(document.getElementById("hsearch") as HTMLInputElement, document.getElementById("hac")!);
   wireSearch(document.getElementById("hero-q") as HTMLInputElement, document.getElementById("hero-ac")!);
   wireLogo();
-  (document.getElementById("hero-q") as HTMLInputElement).focus();
+  if (!restoreScroll) (document.getElementById("hero-q") as HTMLInputElement).focus();
 
-  // ---- leaderboard state machine ----
-  let mode: "jumps" | "timed" = "jumps";
-  let level: 25 | 100 | "all" = 25;
-  let sortDir: "desc" | "asc" = "desc";
+  // route + organized-move clicks
+  const evGo = (el: Element) => { lbState.scrollY = window.scrollY; go(eventUrl((el as HTMLElement).dataset.ev!)); };
+  app.querySelectorAll("[data-ev]").forEach((el) => el.addEventListener("click", () => evGo(el)));
+
+  await wireLeaderboards(lb);
+
+  if (restoreScroll) { window.scrollTo(0, lbState.scrollY); restoreScroll = false; }
+}
+
+// ---- the six leaderboards ----
+const MODES: { key: string; label: string; sortable?: boolean }[] = [
+  { key: "jumps", label: "Most jumps" },
+  { key: "timed", label: "Best & worst-timed", sortable: true },
+  { key: "loyal", label: "Loyal & true", sortable: true },
+  { key: "boom", label: "Boomerangs" },
+  { key: "cross", label: "Coalition-crossers" },
+  { key: "vets", label: "Veterans" },
+];
+const SUBS: Record<string, string> = {
+  jumps: "Ranked by number of party-switches across the elections they contested. Renames & mergers don't count — only real moves.",
+  timed: "Ranked by how often their jumps paid off — the share of switches where they won under the new party.",
+  loyal: "Politicians who never switched (3+ elections), ranked by how often they won under their one party.",
+  boom: "Politicians who left a party and later came back — ranked by number of returns.",
+  cross: "Switches that crossed coalition lines, not just parties — ranked by number of crossings.",
+  vets: "The longest-serving — ranked by number of elections contested since 1955.",
+};
+
+async function wireLeaderboards(lb: LB) {
   const lbEl = document.getElementById("lb")!;
   const moreEl = document.getElementById("morerow")!;
   const subEl = document.getElementById("lbsub")!;
   const sortRow = document.getElementById("sortrow") as HTMLElement;
   const sortBtn = document.getElementById("sortbtn")!;
+  const toggleEl = document.getElementById("lbtoggle")!;
+  toggleEl.innerHTML = MODES.map((m) => `<button data-mode="${m.key}" class="${m.key === lbState.mode ? "active" : ""}">${m.label}</button>`).join("");
 
-  const pool = (): LBRec[] => {
-    if (mode === "jumps") return lb.top;            // already sorted by hop count
-    const arr = lb.top.filter((r) => r.n_switches >= 2);  // win-rate needs ≥2 jumps to mean anything
-    arr.sort((a, b) => sortDir === "desc"
-      ? (b.win_rate! - a.win_rate!) || (b.n_switches - a.n_switches) || (b.n_wins - a.n_wins)
-      : (a.win_rate! - b.win_rate!) || (b.n_switches - a.n_switches) || (a.n_wins - b.n_wins));
-    return arr;
+  const rowsFor = async (): Promise<string[]> => {
+    const dir = lbState.sortDir;
+    if (lbState.mode === "jumps")
+      return lb.top.map((r, i) => cardRow(r.slug, r.name, r.path, null, i + 1, String(r.n_switches), "hops"));
+    if (lbState.mode === "timed") {
+      const arr = lb.top.filter((r) => r.n_switches >= 2).sort((a, b) => dir === "desc"
+        ? (b.win_rate! - a.win_rate!) || (b.n_switches - a.n_switches)
+        : (a.win_rate! - b.win_rate!) || (b.n_switches - a.n_switches));
+      return arr.map((r, i) => cardRow(r.slug, r.name, r.path, r.wins, i + 1, `${pct(r.win_rate!)}<span class="pct">%</span>`, `${r.n_wins}/${r.n_switches} won`, landingCls(r.win_rate)));
+    }
+    if (lbState.mode === "loyal") {
+      const arr = (await loadLoyal()).slice().sort((a, b) => dir === "desc"
+        ? (b.win_rate - a.win_rate) || (b.n_contests - a.n_contests)
+        : (a.win_rate - b.win_rate) || (b.n_contests - a.n_contests));
+      return arr.map((r, i) => cardRow(r.slug, r.name, [r.party], null, i + 1, `${pct(r.win_rate)}<span class="pct">%</span>`, `${r.n_contests} elections`, landingCls(r.win_rate)));
+    }
+    if (lbState.mode === "boom") {
+      const arr = lb.top.filter((r) => r.n_returns >= 1).sort((a, b) => (b.n_returns - a.n_returns) || (b.n_switches - a.n_switches));
+      return arr.map((r, i) => cardRow(r.slug, r.name, r.path, null, i + 1, String(r.n_returns), r.n_returns === 1 ? "return" : "returns"));
+    }
+    if (lbState.mode === "cross") {
+      const arr = lb.top.filter((r) => r.n_cross >= 1).sort((a, b) => (b.n_cross - a.n_cross) || (b.n_switches - a.n_switches));
+      return arr.map((r, i) => cardRow(r.slug, r.name, r.path, null, i + 1, String(r.n_cross), r.n_cross === 1 ? "crossing" : "crossings"));
+    }
+    // vets
+    const arr = await loadVets();
+    return arr.map((r, i) => cardRow(r.slug, r.name, r.path, null, i + 1, String(r.n_contests), "elections"));
   };
-  const renderLB = () => {
-    const p = pool();
-    const rows = p.slice(0, level === "all" ? p.length : level);
-    lbEl.innerHTML = rows.map((r, i) => mode === "jumps" ? rowJumps(r, i) : rowTimed(r, i)).join("");
-    lbEl.querySelectorAll(".row").forEach((r) => r.addEventListener("click", () => go(`p/${(r as HTMLElement).dataset.slug}/`)));
-    subEl.textContent = mode === "jumps"
-      ? "Ranked by number of party-switches across the elections they contested. Renames & mergers don't count — only real moves."
-      : "Ranked by how often their jumps paid off — the share of switches where they won under the new party. W = won that election, L = lost.";
-    sortRow.hidden = mode !== "timed";
-    sortBtn.textContent = sortDir === "desc" ? "Biggest winners first  ↓" : "Biggest losers first  ↑";
+
+  const render = async () => {
+    const rows = await rowsFor();
+    const shown = rows.slice(0, lbState.level);
+    lbEl.innerHTML = shown.join("");
+    lbEl.querySelectorAll(".row").forEach((r) => r.addEventListener("click", () => { lbState.scrollY = window.scrollY; go(`p/${(r as HTMLElement).dataset.slug}/`); }));
+    subEl.textContent = SUBS[lbState.mode];
+    const sortable = MODES.find((m) => m.key === lbState.mode)?.sortable;
+    sortRow.hidden = !sortable;
+    if (sortable) sortBtn.textContent = lbState.sortDir === "desc" ? "Best first  ↓" : "Worst first  ↑";
     const btns: string[] = [];
-    if (level !== 25) btns.push(`<button data-act="less">← see less</button>`);
-    if (level === 25 && p.length > 25) btns.push(`<button data-act="more">see more 🐸</button>`);
-    else if (level === 100 && p.length > 100) btns.push(`<button data-act="all">see all 🐸</button>`);
+    if (lbState.level > 25) btns.push(`<button data-act="less">← see less</button>`);
+    if (lbState.level < rows.length) btns.push(`<button data-act="more">see more 🐸</button>`);
     moreEl.innerHTML = btns.join("");
     moreEl.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
       const act = (b as HTMLElement).dataset.act;
-      level = act === "less" ? 25 : act === "more" ? 100 : "all";
-      renderLB();
+      lbState.level = act === "less" ? 25 : (lbState.level === 25 ? 100 : lbState.level + 100);
+      render();
     }));
   };
-  document.getElementById("lbtoggle")!.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
-    const m = (b as HTMLElement).dataset.mode as "jumps" | "timed";
-    if (m === mode) return;
-    mode = m; level = 25;
-    document.querySelectorAll("#lbtoggle button").forEach((x) => x.classList.toggle("active", (x as HTMLElement).dataset.mode === mode));
-    renderLB();
+
+  toggleEl.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    const m = (b as HTMLElement).dataset.mode!;
+    if (m === lbState.mode) return;
+    lbState.mode = m; lbState.level = 25; lbState.sortDir = "desc";
+    toggleEl.querySelectorAll("button").forEach((x) => x.classList.toggle("active", (x as HTMLElement).dataset.mode === m));
+    render();
   }));
-  sortBtn.addEventListener("click", () => { sortDir = sortDir === "desc" ? "asc" : "desc"; level = 25; renderLB(); });
-  renderLB();
+  sortBtn.addEventListener("click", () => { lbState.sortDir = lbState.sortDir === "desc" ? "asc" : "desc"; lbState.level = 25; render(); });
+  await render();
 }
+
+// ---------- EVENT (organized move / route) ----------
+async function renderEvent(key: string) {
+  app.innerHTML = `${header()}<div class="loading">Loading…</div>`;
+  wireSearch(document.getElementById("hsearch") as HTMLInputElement, document.getElementById("hac")!);
+  wireLogo();
+  let ev: EventDetail | undefined, map: Map<string, LBRec>;
+  try { const [events] = await Promise.all([loadEvents(), loadLB()]); ev = events[key]; map = CARDMAP!; }
+  catch { app.querySelector(".loading")!.outerHTML = `<div class="wrap loading">Event not found. <a href="${BASE}" style="color:var(--accent)">Back home →</a></div>`; return; }
+  if (!ev) { app.querySelector(".loading")!.outerHTML = `<div class="wrap loading">Event not found. <a href="${BASE}" style="color:var(--accent)">Back home →</a></div>`; return; }
+
+  const title = ev.type === "m" ? `The move to ${esc(ev.to)} · ${ev.year}` : `${esc(ev.from!)} → ${esc(ev.to)}`;
+  const lead = ev.type === "m"
+    ? `${ev.n} candidates jumped into <b>${esc(ev.to)}</b> at the ${ev.year} election.`
+    : `${ev.n} politicians have made the <b>${esc(ev.from!)} → ${esc(ev.to)}</b> jump.`;
+  document.title = `${title} · Lompat`;
+  const succ = pct(ev.wins / ev.n);
+  const succCls = landingCls(ev.wins / ev.n);
+  const members = ev.members
+    .map((m) => ({ m, r: map.get(m.s) }))
+    .filter((x) => x.r)
+    .sort((a, b) => b.r!.n_switches - a.r!.n_switches);
+  const rows = members.map((x, i) => cardRow(x.r!.slug, x.r!.name, x.r!.path, null, i + 1,
+    `<span class="wl ${x.m.w ? "w" : "l"}">${x.m.w ? "W" : "L"}</span>`, x.m.w ? "won" : "lost")).join("");
+
+  app.querySelector(".loading")!.outerHTML = `<main class="cand"><div class="wrap">
+    <button class="backlink" id="back">← Leaderboard</button>
+    <div class="candhead">
+      <div class="nm">${title}</div>
+      <div class="summary" style="margin-top:10px">${lead}</div>
+      <div class="verdicts">
+        <div class="verdict ${succCls}">🎯 ${succ}% won their seat</div>
+        <div class="verdict">${ev.wins} of ${ev.n} successful</div>
+      </div>
+    </div>
+    <div class="lb" style="margin-top:18px">${rows}</div>
+    ${footer()}
+  </div></main>`;
+  document.getElementById("back")!.onclick = () => backToHome();
+  app.querySelectorAll(".lb .row").forEach((r) => r.addEventListener("click", () => go(`p/${(r as HTMLElement).dataset.slug}/`)));
+}
+
+function backToHome() { restoreScroll = true; go(""); }
 
 // ---------- CANDIDATE ----------
 async function renderCand(slug: string) {
@@ -256,29 +400,38 @@ async function renderCand(slug: string) {
   const isFrog = c.n_switches > 0;
   const span = `${c.first_year}–${c.last_year}`;
   const k = katakLabel(c.n_switches);
-  const t = timingLabel(c.win_rate);
-  const pct = c.win_rate != null ? Math.round(c.win_rate * 100) : 0;
+  const winPct = c.win_rate != null ? pct(c.win_rate) : 0;
+  const careerPct = pct(c.career_win_rate);
   const items: string[] = [];
   c.contests.forEach((ct) => {
     if (ct.hop) {
       const sw = c.switches.find((s) => s.year === ct.year && s.to === ct.party_canon);
       const vs = sw && sw.vs_old === "beat" ? " · beat their former party here"
         : sw && sw.vs_old === "lost_to" ? " · former party won this seat" : "";
-      items.push(`<div class="hopmark">🐸 HOPPED${sw ? ` · ${esc(sw.from)} → ${esc(sw.to)}${sw.cross_coalition ? " (crossed coalition)" : ""}${vs}` : ""}</div>`);
+      const ret = sw && sw.return ? " · 🪃 returned" : "";
+      items.push(`<div class="hopmark">🐸 HOPPED${sw ? ` · ${esc(sw.from)} → ${esc(sw.to)}${sw.cross_coalition ? " (crossed coalition)" : ""}${vs}${ret}` : ""}</div>`);
     }
-    const res = ct.result.startsWith("won") ? "won" : "lost";
+    const won = ct.result.startsWith("won");
     items.push(`<div class="tl-item">
       <span class="tl-node" style="background:${partyColor(ct.party_canon)}"></span>
       <div class="tl-card">
         <div class="y">${ct.year} · ${esc(ct.election)}</div>
         <div class="seat">${esc(ct.seat)} <span style="color:var(--muted);font-weight:400">· ${esc(ct.state)}</span></div>
-        <div class="pp">${pchip(ct.party_canon)}${ct.party !== ct.party_canon ? `<span style="color:var(--muted);font-size:12px">(as ${esc(ct.party)})</span>` : ""}${ct.coalition ? `<span style="color:var(--muted)">${esc(ct.coalition)}</span>` : ""}<span class="res ${res}">${res === "won" ? "WON" : "lost"}${ct.votes_perc != null ? ` · ${ct.votes_perc.toFixed(0)}%` : ""}</span></div>
+        <div class="pp">${pchip(ct.party_canon)}${ct.party !== ct.party_canon ? `<span style="color:var(--muted);font-size:12px">(as ${esc(ct.party)})</span>` : ""}${ct.coalition ? `<span style="color:var(--muted)">${esc(ct.coalition)}</span>` : ""}<span class="res ${won ? "won" : "lost"}">${won ? "WON" : "LOST"}${ct.votes_perc != null ? ` · ${ct.votes_perc.toFixed(0)}%` : ""}</span></div>
       </div>
     </div>`);
   });
 
+  // verdict chips
+  const chips: string[] = [`<div class="verdict ${k.cls}">${k.emoji} ${k.txt}</div>`];
+  if (isFrog) { const t = landing(c.win_rate); if (t) chips.push(`<div class="verdict ${t.cls}">${t.emoji} ${t.txt} · ${winPct}% of jumps won</div>`); }
+  else { chips.push(`<div class="verdict ${landingCls(c.career_win_rate)}">💍 ${careerPct}% career wins</div>`); }
+  if (c.n_returns >= 1) chips.push(`<div class="verdict boom">🪃 Boomerang${c.n_returns > 1 ? ` ×${c.n_returns}` : ""}</div>`);
+  if (c.n_cross >= 2) chips.push(`<div class="verdict cross">🔀 Coalition-crosser ×${c.n_cross}</div>`);
+  if (c.n_contests >= 10) chips.push(`<div class="verdict vet">🎖 Veteran · ${c.n_contests} elections</div>`);
+
   const shareText = isFrog
-    ? `${c.name} — ${c.n_switches} party-hop${c.n_switches > 1 ? "s" : ""}, won ${pct}% of them: ${c.path.join(" → ")} 🐸 On the record:`
+    ? `${c.name} — ${c.n_switches} party-hop${c.n_switches > 1 ? "s" : ""}, won ${winPct}% of them: ${c.path.join(" → ")}. 🐸 On the record:`
     : `${c.name}: ${c.n_contests} elections, never switched parties (${c.parties[0]}). A rare loyalist. 💍`;
   const pageUrl = location.origin + `${BASE}p/${c.slug}/`;
 
@@ -288,14 +441,11 @@ async function renderCand(slug: string) {
       <div class="nm">${esc(c.name)}</div>
       <div class="meta">${c.n_contests} elections · ${span} · ${c.n_parties} part${c.n_parties === 1 ? "y" : "ies"}</div>
       <div class="summary">${isFrog
-        ? `Hopped <b>${c.n_switches}</b> time${c.n_switches > 1 ? "s" : ""} across <b>${c.n_parties}</b> parties — <b>${pct}%</b> of those jumps landed a win:`
-        : `Contested <b>${c.n_contests}</b> times and <b>never switched</b> party.`}
-        <div class="path" style="margin-top:10px">${pathHtml(c.path, isFrog ? c.wins : undefined)}</div>
+        ? `Hopped <b>${c.n_switches}</b> time${c.n_switches > 1 ? "s" : ""} across <b>${c.n_parties}</b> parties — <b>${winPct}%</b> of those jumps landed a win:`
+        : `Contested <b>${c.n_contests}</b> times and <b>never switched</b> party — winning <b>${careerPct}%</b>.`}
+        <div class="path" style="margin-top:10px">${pathHtml(c.path, isFrog ? c.wins : null)}</div>
       </div>
-      <div class="verdicts">
-        <div class="verdict ${k.cls}">${k.emoji} ${k.txt}</div>
-        ${t ? `<div class="verdict ${t.cls}">${t.emoji} ${t.txt} · ${pct}% of jumps won</div>` : ""}
-      </div>
+      <div class="verdicts">${chips.join("")}</div>
     </div>
     <div class="timeline">${items.join("")}</div>
     <div class="sharebar">
@@ -305,7 +455,7 @@ async function renderCand(slug: string) {
     </div>
     ${footer()}
   </div></main>`;
-  document.getElementById("back")!.onclick = () => go("");
+  document.getElementById("back")!.onclick = () => backToHome();
   document.getElementById("copy")!.onclick = () => { navigator.clipboard?.writeText(pageUrl); toast("Link copied"); };
 }
 
