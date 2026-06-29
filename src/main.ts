@@ -486,12 +486,12 @@ async function renderCand(slug: string) {
       <div class="verdicts">${chips.join("")}</div>
     </div>
     <div class="timeline">${items.join("")}</div>
-    <button class="backlink bottom">← Leaderboard</button>
     <div class="sharebar">
       <button class="primary" id="copy">🔗 Copy link</button>
       <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(pageUrl)}" target="_blank" rel="noopener">𝕏 Share</a>
       <a href="https://electiondata.my/candidates/" target="_blank" rel="noopener">Full record on electiondata.my →</a>
     </div>
+    <button class="backlink bottom">← Leaderboard</button>
     ${footer()}
   </div></main>`;
   app.querySelectorAll(".backlink").forEach((b) => ((b as HTMLElement).onclick = () => backToHome()));
