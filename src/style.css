@@ -39,7 +39,7 @@ header.top { border-bottom: 1px solid var(--line); position: sticky; top: 0; bac
 .ac .h { font-weight: 700; font-size: 12.5px; flex: none; }
 /* search infographic badges */
 .kbadge { border-radius: 6px; padding: 1px 7px; font-size: 12px; font-weight: 700; white-space: nowrap; color: #fff; }
-.kbadge.loyal { background: var(--accent); color: #06231a; }
+.kbadge.loyal { background: #2b7fff; color: #fff; }
 .kbadge.katak { background: var(--hot); }
 .kbadge.superkatak { background: var(--superhot); }
 .tbadge { border-radius: 6px; padding: 1px 7px; font-size: 12px; font-weight: 700; white-space: nowrap; }
@@ -111,6 +111,10 @@ header.top { border-bottom: 1px solid var(--line); position: sticky; top: 0; bac
 .card h3 { font-size: 15px; margin-bottom: 12px; }
 .route { display: flex; align-items: center; gap: 8px; font-size: 13.5px; padding: 6px; margin: 0 -6px; border-radius: 8px; }
 .route .n { margin-left: auto; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.route .rwin { font-weight: 700; font-size: 12.5px; font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
+.route .rwin.soft { color: var(--accent); }
+.route .rwin.bumpy { color: #f5c061; }
+.route .rwin.crash { color: var(--hot); }
 .route[data-ev] { cursor: pointer; }
 .route[data-ev]:hover { background: var(--panel2); }
 .cardnote { color: var(--muted); font-size: 12px; margin-top: 8px; }
@@ -125,6 +129,10 @@ header.top { border-bottom: 1px solid var(--line); position: sticky; top: 0; bac
 .yc-peak { fill: var(--accent); font-size: 13px; font-weight: 700; }
 .yc-base { stroke: var(--line); stroke-width: 1; }
 .yc-tick { fill: var(--muted); font-size: 11px; }
+.yc-legend { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; margin-top: 8px; }
+.yc-legend .sw { display: inline-block; width: 11px; height: 11px; border-radius: 2px; }
+.yc-legend .sw.ctx { background: #3a4456; }
+.yc-legend .sw.peak { background: var(--accent); }
 
 /* candidate page */
 .cand { padding: 24px 0 70px; }
@@ -139,13 +147,13 @@ header.top { border-bottom: 1px solid var(--line); position: sticky; top: 0; bac
 .verdict { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; font-weight: 700; font-size: 14px; }
 .verdict.katak { background: rgba(255,84,112,.15); color: #ff8aa0; }
 .verdict.superkatak { background: rgba(176,38,255,.16); color: #cda1ff; }
-.verdict.loyal { background: rgba(52,210,123,.14); color: var(--accent); }
+.verdict.loyal { background: rgba(56,135,255,.16); color: #6ab0ff; }
 .verdict.soft { background: rgba(52,210,123,.14); color: var(--accent); }
 .verdict.bumpy { background: rgba(245,166,35,.16); color: #f5c061; }
 .verdict.crash { background: rgba(255,84,112,.15); color: #ff8aa0; }
 .verdict.boom { background: rgba(0,150,214,.16); color: #5cc4f0; }
-.verdict.cross { background: rgba(176,38,255,.14); color: #cda1ff; }
-.verdict.vet { background: rgba(212,175,55,.16); color: #e3c766; }
+.verdict.cross { background: rgba(240,101,149,.18); color: #ff8ac0; }
+.verdict.vet { background: rgba(255,149,0,.16); color: #ff9f43; }
 
 /* timeline */
 .timeline { margin-top: 22px; position: relative; padding-left: 8px; }

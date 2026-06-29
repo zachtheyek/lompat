@@ -212,10 +212,9 @@ vets_out = [{"slug": x["slug"], "name": x["name"], "path": x["path"], "wins": x[
 (OUT / "veterans.json").write_text(json.dumps(vets_out, separators=(",", ":")))
 
 # ---- which candidates get a prerendered page + OG card (shareable) ----
-# every switcher, plus loyalists with a real career (>=4 elections) so prominent
-# loyalists (e.g. PMs) get a share card too. The obscure 2–3-contest tail falls back.
-og_slugs = [x["slug"] for x in switchers] + \
-           [x["slug"] for x in index if x["n_switches"] == 0 and x["n_contests"] >= 4]
+# everyone searchable (i.e. every multi-contest candidate) — switchers AND loyalists —
+# so any politician you can pull up has a real share card, not a 404 fallback.
+og_slugs = [x["slug"] for x in index if x["n_contests"] >= 2]
 (OUT / "og_list.json").write_text(json.dumps(og_slugs, separators=(",", ":")))
 
 print(f"candidates: {len(index):,}  | switchers: {len(switchers):,}  | trajectory files: {n_files:,}")

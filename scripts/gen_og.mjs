@@ -40,7 +40,7 @@ function switcherCard(c) {
   <div style="display:flex;flex-direction:column;width:1200px;height:630px;padding:58px 68px;background:#0e1117;font-family:'Space Grotesk'">
     ${brand()}
     <div style="display:flex;font-size:${nameSize(c.name)}px;font-weight:700;color:#eef2f8;line-height:1.05;margin-top:26px;max-width:1064px">${c.name}</div>
-    <div style="display:flex;align-items:baseline;margin-top:24px">
+    <div style="display:flex;align-items:center;margin-top:24px">
       <div style="display:flex;font-size:116px;font-weight:700;color:#ff5470;line-height:1">${c.n_switches}</div>
       <div style="display:flex;flex-direction:column;margin-left:24px">
         <div style="display:flex;font-size:34px;color:#eef2f8;font-weight:700">party hops</div>
@@ -59,7 +59,7 @@ function loyalistCard(c) {
   <div style="display:flex;flex-direction:column;width:1200px;height:630px;padding:58px 68px;background:#0e1117;font-family:'Space Grotesk'">
     ${brand()}
     <div style="display:flex;font-size:${nameSize(c.name)}px;font-weight:700;color:#eef2f8;line-height:1.05;margin-top:26px;max-width:1064px">${c.name}</div>
-    <div style="display:flex;align-items:baseline;margin-top:24px">
+    <div style="display:flex;align-items:center;margin-top:24px">
       <div style="display:flex;font-size:116px;font-weight:700;color:#34d27b;line-height:1">${c.n_contests}</div>
       <div style="display:flex;flex-direction:column;margin-left:24px">
         <div style="display:flex;font-size:34px;color:#eef2f8;font-weight:700">elections, never switched</div>

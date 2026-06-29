@@ -39,6 +39,12 @@ function landing(wr: number | null) {
   return { txt: "Crash landing", emoji: "🔴", cls: "crash" };
 }
 const landingCls = (wr: number | null) => landing(wr)?.cls ?? "";
+// career win-share (shown for everyone): same thresholds as landing, distinct emoji set.
+function careerTier(wr: number) {
+  if (wr > 0.6) return { emoji: "🏆", cls: "soft" };
+  if (wr >= 0.25) return { emoji: "🗳️", cls: "bumpy" };
+  return { emoji: "📉", cls: "crash" };
+}
 const katakBadge = (h: number) => { const k = katakLabel(h); return `<span class="kbadge ${k.cls}">${k.emoji} ${h}</span>`; };
 const timingBadge = (wr: number | null) => { const t = landing(wr); return t ? `<span class="tbadge ${t.cls}" title="${t.txt} · ${pct(wr!)}% of jumps won">${pct(wr!)}%</span>` : ""; };
 
@@ -218,10 +224,10 @@ async function renderHome() {
 
       <div class="two" style="margin-top:30px">
         <div class="card"><h3>Most-travelled routes</h3>
-          ${lb.routes.slice(0, 10).map((r) => `<div class="route" data-ev="${r.id}">${pchip(r.from)}<span class="arrow">→</span>${pchip(r.to)}<span class="n">${r.n}</span></div>`).join("")}
-          <div class="cardnote">Tap a route to see everyone who made it.</div>
+          ${lb.routes.slice(0, 10).map((r) => { const wr = r.wins / r.members; return `<div class="route" data-ev="${r.id}">${pchip(r.from)}<span class="arrow">→</span>${pchip(r.to)}<span class="n">${r.n}</span><span class="rwin ${landingCls(wr)}">${pct(wr)}%</span></div>`; }).join("")}
+          <div class="cardnote">Hops · win-rate. Tap a route to see everyone who made it.</div>
         </div>
-        <div class="card"><h3>Where the frogs go</h3>
+        <div class="card"><h3>Where they go</h3>
           <div class="flow"><div class="flow-h">Most hopped <b>to</b></div>${lb.inflows.map((r) => `<div class="route">${pchip(r.party)}<span class="n">${r.n}</span></div>`).join("")}</div>
           <div class="flow"><div class="flow-h">Most hopped <b>from</b></div>${lb.outflows.map((r) => `<div class="route">${pchip(r.party)}<span class="n">${r.n}</span></div>`).join("")}</div>
         </div>
@@ -229,15 +235,17 @@ async function renderHome() {
 
       <div class="section-title" style="margin-top:30px">🪷 Biggest organized hops</div>
       <div class="section-sub">Elections where ${5}+ candidates jumped into the same party at once — splits, defection waves, new-party launches. Tap to see who.</div>
-      <div class="lb">${lb.events.slice(0, 8).map((e) => `<div class="row ev" data-ev="${e.id}">
-        <div class="who"><div class="nm">${esc(e.to)} <span class="evyear">${e.year}</span></div><div class="evsub">${e.n} candidates jumped in · ${pct(e.wins / e.n)}% won their seat</div></div>
+      <div class="lb">${lb.events.slice(0, 8).map((e) => { const wr = e.wins / e.n; return `<div class="row ev" data-ev="${e.id}">
+        <div class="who"><div class="nm">${esc(e.to)} <span class="evyear">${e.year}</span></div></div>
         <div class="hops"><span class="num">${e.n}</span><span class="lbl">jumpers</span></div>
-      </div>`).join("")}</div>
+        <div class="hops"><span class="num ${landingCls(wr)}">${pct(wr)}<span class="pct">%</span></span><span class="lbl">${e.wins}/${e.n} won</span></div>
+      </div>`; }).join("")}</div>
 
       <div class="card" style="margin-top:30px">
         <h3>Hops by year</h3>
-        <div class="cardnote" style="margin:-6px 0 8px">Each bar is one election year. Party-hopping spikes when coalitions realign.</div>
+        <div class="cardnote" style="margin:-6px 0 8px">Each bar is one election year; its height is how many candidates hopped that year. Party-hopping spikes when coalitions realign.</div>
         ${yearChart(lb.by_year)}
+        <div class="yc-legend"><span class="sw ctx"></span> an election year &nbsp;&nbsp; <span class="sw peak"></span> the peak (most hops ever)</div>
       </div>
     </div>
     ${footer()}
@@ -254,16 +262,18 @@ async function renderHome() {
 
   await wireLeaderboards(lb);
 
+  // restore the home scroll position only when returning via "← Leaderboard"; otherwise top.
   if (restoreScroll) { window.scrollTo(0, lbState.scrollY); restoreScroll = false; }
+  else window.scrollTo(0, 0);
 }
 
 // ---- the six leaderboards ----
 const MODES: { key: string; label: string; sortable?: boolean }[] = [
   { key: "jumps", label: "Most jumps" },
   { key: "timed", label: "Best & worst-timed", sortable: true },
-  { key: "loyal", label: "Loyal & true", sortable: true },
   { key: "boom", label: "Boomerangs" },
   { key: "cross", label: "Coalition-crossers" },
+  { key: "loyal", label: "Loyal & true", sortable: true },
   { key: "vets", label: "Veterans" },
 ];
 const SUBS: Record<string, string> = {
@@ -383,6 +393,7 @@ async function renderEvent(key: string) {
   </div></main>`;
   document.getElementById("back")!.onclick = () => backToHome();
   app.querySelectorAll(".lb .row").forEach((r) => r.addEventListener("click", () => go(`p/${(r as HTMLElement).dataset.slug}/`)));
+  window.scrollTo(0, 0);
 }
 
 function backToHome() { restoreScroll = true; go(""); }
@@ -425,7 +436,8 @@ async function renderCand(slug: string) {
   // verdict chips
   const chips: string[] = [`<div class="verdict ${k.cls}">${k.emoji} ${k.txt}</div>`];
   if (isFrog) { const t = landing(c.win_rate); if (t) chips.push(`<div class="verdict ${t.cls}">${t.emoji} ${t.txt} · ${winPct}% of jumps won</div>`); }
-  else { chips.push(`<div class="verdict ${landingCls(c.career_win_rate)}">💍 ${careerPct}% career wins</div>`); }
+  const ct = careerTier(c.career_win_rate);
+  chips.push(`<div class="verdict ${ct.cls}">${ct.emoji} ${careerPct}% career wins</div>`);
   if (c.n_returns >= 1) chips.push(`<div class="verdict boom">🪃 Boomerang${c.n_returns > 1 ? ` ×${c.n_returns}` : ""}</div>`);
   if (c.n_cross >= 2) chips.push(`<div class="verdict cross">🔀 Coalition-crosser ×${c.n_cross}</div>`);
   if (c.n_contests >= 10) chips.push(`<div class="verdict vet">🎖 Veteran · ${c.n_contests} elections</div>`);
@@ -457,6 +469,7 @@ async function renderCand(slug: string) {
   </div></main>`;
   document.getElementById("back")!.onclick = () => backToHome();
   document.getElementById("copy")!.onclick = () => { navigator.clipboard?.writeText(pageUrl); toast("Link copied"); };
+  window.scrollTo(0, 0);
 }
 
 function footer() {
