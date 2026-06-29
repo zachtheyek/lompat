@@ -34,16 +34,17 @@ header.top { border-bottom: 1px solid var(--line); position: sticky; top: 0; bac
 .ac { position: absolute; top: 46px; left: 0; right: 0; background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; z-index: 40; max-height: 60vh; overflow-y: auto; }
 .ac li { list-style: none; padding: 11px 14px; display: flex; align-items: center; gap: 9px; cursor: pointer; }
 .ac li:hover, .ac li.active { background: #222b3a; }
-/* name has priority: it always keeps at least the first name. Under tight space the lower-
-   priority labels drop in order — year first, then the win-rate badge — so the name stays. */
-.ac li .nm { flex: 1 1 auto; min-width: 4.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* name has priority and is always left-aligned (the hero centres its text, so reset it).
+   Under tight space the cramped HEADER dropdown drops the lower-priority labels — year
+   first, then the win-rate badge — so the name stays. The roomier hero dropdown keeps them. */
+.ac li .nm { flex: 1 1 auto; min-width: 4.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .ac .badges { display: flex; align-items: center; gap: 5px; flex: none; }
 .ac .h { font-weight: 700; font-size: 12.5px; flex: none; }
 @media (max-width: 600px) {
-  .top .grow { display: none; }       /* let the header search use the width */
-  .searchbox { max-width: none; }
-  .ac .h { display: none; }            /* drop the year range first */
-  .ac .tbadge { display: none; }       /* then the win-rate badge; keep name + hop-count badge */
+  .top .grow { display: none; }        /* let the header search use the width */
+  .top .searchbox { max-width: none; }
+  #hac .h { display: none; }           /* header dropdown only: drop the year range first */
+  #hac .tbadge { display: none; }      /* then the win-rate badge; keep name + hop-count badge */
 }
 /* search infographic badges */
 .kbadge { border-radius: 6px; padding: 1px 7px; font-size: 12px; font-weight: 700; white-space: nowrap; color: #fff; }
@@ -99,6 +100,8 @@ header.top { border-bottom: 1px solid var(--line); position: sticky; top: 0; bac
 .hop .wl.w { color: var(--accent); }
 .hop .wl.l { color: var(--hot); }
 .hops { display: flex; flex-direction: column; align-items: center; flex: none; min-width: 48px; }
+/* organized-hop rows: jumpers + win% each get a fixed-width column so they align vertically across cards */
+.row.ev .hops { flex: 0 0 72px; min-width: 0; }
 .hops .num { font-size: 24px; font-weight: 700; color: var(--hot); line-height: 1; font-variant-numeric: tabular-nums; }
 .hops .num.soft { color: var(--accent); }
 .hops .num.bumpy { color: #f5c061; }

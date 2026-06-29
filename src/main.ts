@@ -59,11 +59,13 @@ function pathHtml(path: string[], wins?: boolean[] | null) {
   }).join("");
 }
 
-// Standard competition ranking ("1224"): rows sharing the displayed metric value share a
-// placement, and the next distinct value skips ahead. Input must already be sorted.
-function placed<T>(arr: T[], metric: (t: T) => number): { r: T; place: number }[] {
-  let place = 0; let prev: number | null = null;
-  return arr.map((r, i) => { const v = metric(r); if (v !== prev) { place = i + 1; prev = v; } return { r, place }; });
+// Standard competition ranking ("1224"): rows sharing the ranking key share a placement,
+// and the next distinct key skips ahead. Input must already be sorted. The key is the
+// displayed value for count boards, but for percentage boards it's `pct|secondary` so two
+// rows at the same % are still separated by the secondary metric we already sort by.
+function placed<T>(arr: T[], key: (t: T) => number | string): { r: T; place: number }[] {
+  let place = 0; let prev: number | string | null = null;
+  return arr.map((r, i) => { const v = key(r); if (v !== prev) { place = i + 1; prev = v; } return { r, place }; });
 }
 
 // generic leaderboard / member row
@@ -309,13 +311,13 @@ async function wireLeaderboards(lb: LB) {
       const arr = lb.top.filter((r) => r.n_switches >= 2).sort((a, b) => dir === "desc"
         ? (b.win_rate! - a.win_rate!) || (b.n_switches - a.n_switches)
         : (a.win_rate! - b.win_rate!) || (b.n_switches - a.n_switches));
-      return placed(arr, (r) => pct(r.win_rate!)).map(({ r, place }) => cardRow(r.slug, r.name, r.path, r.wins, place, `${pct(r.win_rate!)}<span class="pct">%</span>`, `${r.n_wins}/${r.n_switches} won`, landingCls(r.win_rate)));
+      return placed(arr, (r) => `${pct(r.win_rate!)}|${r.n_switches}`).map(({ r, place }) => cardRow(r.slug, r.name, r.path, r.wins, place, `${pct(r.win_rate!)}<span class="pct">%</span>`, `${r.n_wins}/${r.n_switches} won`, landingCls(r.win_rate)));
     }
     if (lbState.mode === "loyal") {
       const arr = (await loadLoyal()).slice().sort((a, b) => dir === "desc"
         ? (b.win_rate - a.win_rate) || (b.n_contests - a.n_contests)
         : (a.win_rate - b.win_rate) || (b.n_contests - a.n_contests));
-      return placed(arr, (r) => pct(r.win_rate)).map(({ r, place }) => cardRow(r.slug, r.name, [r.party], null, place, `${pct(r.win_rate)}<span class="pct">%</span>`, `${r.n_contests} elections`, landingCls(r.win_rate)));
+      return placed(arr, (r) => `${pct(r.win_rate)}|${r.n_contests}`).map(({ r, place }) => cardRow(r.slug, r.name, [r.party], null, place, `${pct(r.win_rate)}<span class="pct">%</span>`, `${r.n_contests} elections`, landingCls(r.win_rate)));
     }
     if (lbState.mode === "boom") {
       const arr = lb.top.filter((r) => r.n_returns >= 1).sort((a, b) => (b.n_returns - a.n_returns) || (b.n_switches - a.n_switches));
