@@ -1,13 +1,14 @@
 name: Deploy to GitHub Pages
 
-# Builds the site from the live MECo foundation (zachtheyek/meco-data) on every push
-# AND weekly — so when the underlying data is refreshed, the site updates itself with
-# no code change. public/data is generated here, not committed.
+# Builds the site from the live MECo foundation (zachtheyek/meco-data). Runs on every
+# push, AND weekly. On the weekly run it FIRST checks whether the MECo data actually
+# changed since the last deploy — if not, it does nothing. public/data is generated
+# here, not committed. So the site self-updates whenever the data is refreshed.
 on:
   push:
     branches: [main]
   schedule:
-    - cron: "17 20 * * 0"   # Sundays 20:17 UTC — pick up any refreshed MECo data
+    - cron: "17 20 * * 0"   # Sundays 20:17 UTC, just after meco-data's auto-refresh
   workflow_dispatch:
 
 permissions:
@@ -20,7 +21,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # On scheduled runs, skip the whole build unless the MECo foundation moved since the
+  # last deploy (we stamp its commit into dist/data-version.txt). Pushes & manual runs
+  # always build.
+  changed:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.c.outputs.go }}
+      meco_sha: ${{ steps.c.outputs.meco_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: zachtheyek/meco-data
+          path: meco-data
+      - id: c
+        run: |
+          MECO_SHA=$(git -C meco-data rev-parse HEAD)
+          echo "meco_sha=$MECO_SHA" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"; echo "non-schedule run -> build"; exit 0
+          fi
+          LIVE=$(curl -fsS https://zachtheyek.github.io/lompat/data-version.txt 2>/dev/null | tr -d '[:space:]' || echo none)
+          if [ "$MECO_SHA" = "$LIVE" ]; then
+            echo "go=false" >> "$GITHUB_OUTPUT"; echo "MECo data unchanged ($MECO_SHA) -> skip"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"; echo "MECo data changed ($LIVE -> $MECO_SHA) -> build"
+          fi
+
   build:
+    needs: changed
+    if: needs.changed.outputs.go == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,12 +78,15 @@ jobs:
         working-directory: lompat
         env:
           SITE_URL: https://zachtheyek.github.io/lompat
+      - name: Stamp the data version
+        run: echo "${{ needs.changed.outputs.meco_sha }}" > lompat/dist/data-version.txt
       - uses: actions/upload-pages-artifact@v3
         with:
           path: lompat/dist
 
   deploy:
-    needs: build
+    needs: [changed, build]
+    if: needs.changed.outputs.go == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

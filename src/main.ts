@@ -237,7 +237,7 @@ async function renderHome() {
       <div class="section-sub">Elections where ${5}+ candidates jumped into the same party at once — splits, defection waves, new-party launches. Tap to see who.</div>
       <div class="lb">${lb.events.slice(0, 8).map((e) => { const wr = e.wins / e.n; return `<div class="row ev" data-ev="${e.id}">
         <div class="who"><div class="nm">${esc(e.to)} <span class="evyear">${e.year}</span></div></div>
-        <div class="hops"><span class="num">${e.n}</span><span class="lbl">jumpers</span></div>
+        <div class="hops"><span class="num grey">${e.n}</span><span class="lbl">jumpers</span></div>
         <div class="hops"><span class="num ${landingCls(wr)}">${pct(wr)}<span class="pct">%</span></span><span class="lbl">${e.wins}/${e.n} won</span></div>
       </div>`; }).join("")}</div>
 
@@ -444,7 +444,7 @@ async function renderCand(slug: string) {
 
   const shareText = isFrog
     ? `${c.name} — ${c.n_switches} party-hop${c.n_switches > 1 ? "s" : ""}, won ${winPct}% of them: ${c.path.join(" → ")}. 🐸 On the record:`
-    : `${c.name}: ${c.n_contests} elections, never switched parties (${c.parties[0]}). A rare loyalist. 💍`;
+    : `${c.name}: ${c.n_contests} elections, never switched parties (${c.parties[0]}). A rare loyalist. 💍 On the record:`;
   const pageUrl = location.origin + `${BASE}p/${c.slug}/`;
 
   app.querySelector(".loading")!.outerHTML = `<main class="cand"><div class="wrap">

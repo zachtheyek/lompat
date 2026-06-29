@@ -95,6 +95,7 @@ header.top { border-bottom: 1px solid var(--line); position: sticky; top: 0; bac
 .hops .num.soft { color: var(--accent); }
 .hops .num.bumpy { color: #f5c061; }
 .hops .num.crash { color: var(--hot); }
+.hops .num.grey { color: var(--muted); }
 .hops .num .pct { font-size: 14px; margin-left: 1px; }
 .wl.w { color: var(--accent); }
 .wl.l { color: var(--hot); }
@@ -152,7 +153,7 @@ header.top { border-bottom: 1px solid var(--line); position: sticky; top: 0; bac
 .verdict.bumpy { background: rgba(245,166,35,.16); color: #f5c061; }
 .verdict.crash { background: rgba(255,84,112,.15); color: #ff8aa0; }
 .verdict.boom { background: rgba(0,150,214,.16); color: #5cc4f0; }
-.verdict.cross { background: rgba(240,101,149,.18); color: #ff8ac0; }
+.verdict.cross { background: rgba(20,184,166,.18); color: #2dd4bf; }
 .verdict.vet { background: rgba(255,149,0,.16); color: #ff9f43; }
 
 /* timeline */
