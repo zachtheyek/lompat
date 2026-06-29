@@ -59,6 +59,13 @@ function pathHtml(path: string[], wins?: boolean[] | null) {
   }).join("");
 }
 
+// Standard competition ranking ("1224"): rows sharing the displayed metric value share a
+// placement, and the next distinct value skips ahead. Input must already be sorted.
+function placed<T>(arr: T[], metric: (t: T) => number): { r: T; place: number }[] {
+  let place = 0; let prev: number | null = null;
+  return arr.map((r, i) => { const v = metric(r); if (v !== prev) { place = i + 1; prev = v; } return { r, place }; });
+}
+
 // generic leaderboard / member row
 function cardRow(slug: string, name: string, path: string[], wins: boolean[] | null, rank: number, num: string, sub: string, cls = "") {
   return `<div class="row" data-slug="${slug}">
@@ -297,30 +304,30 @@ async function wireLeaderboards(lb: LB) {
   const rowsFor = async (): Promise<string[]> => {
     const dir = lbState.sortDir;
     if (lbState.mode === "jumps")
-      return lb.top.map((r, i) => cardRow(r.slug, r.name, r.path, null, i + 1, String(r.n_switches), "hops"));
+      return placed(lb.top, (r) => r.n_switches).map(({ r, place }) => cardRow(r.slug, r.name, r.path, null, place, String(r.n_switches), "hops"));
     if (lbState.mode === "timed") {
       const arr = lb.top.filter((r) => r.n_switches >= 2).sort((a, b) => dir === "desc"
         ? (b.win_rate! - a.win_rate!) || (b.n_switches - a.n_switches)
         : (a.win_rate! - b.win_rate!) || (b.n_switches - a.n_switches));
-      return arr.map((r, i) => cardRow(r.slug, r.name, r.path, r.wins, i + 1, `${pct(r.win_rate!)}<span class="pct">%</span>`, `${r.n_wins}/${r.n_switches} won`, landingCls(r.win_rate)));
+      return placed(arr, (r) => pct(r.win_rate!)).map(({ r, place }) => cardRow(r.slug, r.name, r.path, r.wins, place, `${pct(r.win_rate!)}<span class="pct">%</span>`, `${r.n_wins}/${r.n_switches} won`, landingCls(r.win_rate)));
     }
     if (lbState.mode === "loyal") {
       const arr = (await loadLoyal()).slice().sort((a, b) => dir === "desc"
         ? (b.win_rate - a.win_rate) || (b.n_contests - a.n_contests)
         : (a.win_rate - b.win_rate) || (b.n_contests - a.n_contests));
-      return arr.map((r, i) => cardRow(r.slug, r.name, [r.party], null, i + 1, `${pct(r.win_rate)}<span class="pct">%</span>`, `${r.n_contests} elections`, landingCls(r.win_rate)));
+      return placed(arr, (r) => pct(r.win_rate)).map(({ r, place }) => cardRow(r.slug, r.name, [r.party], null, place, `${pct(r.win_rate)}<span class="pct">%</span>`, `${r.n_contests} elections`, landingCls(r.win_rate)));
     }
     if (lbState.mode === "boom") {
       const arr = lb.top.filter((r) => r.n_returns >= 1).sort((a, b) => (b.n_returns - a.n_returns) || (b.n_switches - a.n_switches));
-      return arr.map((r, i) => cardRow(r.slug, r.name, r.path, null, i + 1, String(r.n_returns), r.n_returns === 1 ? "return" : "returns"));
+      return placed(arr, (r) => r.n_returns).map(({ r, place }) => cardRow(r.slug, r.name, r.path, null, place, String(r.n_returns), r.n_returns === 1 ? "return" : "returns"));
     }
     if (lbState.mode === "cross") {
       const arr = lb.top.filter((r) => r.n_cross >= 1).sort((a, b) => (b.n_cross - a.n_cross) || (b.n_switches - a.n_switches));
-      return arr.map((r, i) => cardRow(r.slug, r.name, r.path, null, i + 1, String(r.n_cross), r.n_cross === 1 ? "crossing" : "crossings"));
+      return placed(arr, (r) => r.n_cross).map(({ r, place }) => cardRow(r.slug, r.name, r.path, null, place, String(r.n_cross), r.n_cross === 1 ? "crossing" : "crossings"));
     }
     // vets
     const arr = await loadVets();
-    return arr.map((r, i) => cardRow(r.slug, r.name, r.path, null, i + 1, String(r.n_contests), "elections"));
+    return placed(arr, (r) => r.n_contests).map(({ r, place }) => cardRow(r.slug, r.name, r.path, null, place, String(r.n_contests), "elections"));
   };
 
   const render = async () => {
@@ -371,10 +378,12 @@ async function renderEvent(key: string) {
   document.title = `${title} · Lompat`;
   const succ = pct(ev.wins / ev.n);
   const succCls = landingCls(ev.wins / ev.n);
+  // event members are a list, not a ranked board: winners first (ties to the success-rate
+  // headline), then most party-hops, then alphabetical — deterministic, not arbitrary.
   const members = ev.members
     .map((m) => ({ m, r: map.get(m.s) }))
     .filter((x) => x.r)
-    .sort((a, b) => b.r!.n_switches - a.r!.n_switches);
+    .sort((a, b) => (b.m.w - a.m.w) || (b.r!.n_switches - a.r!.n_switches) || a.r!.name.localeCompare(b.r!.name));
   const rows = members.map((x, i) => cardRow(x.r!.slug, x.r!.name, x.r!.path, null, i + 1,
     `<span class="wl ${x.m.w ? "w" : "l"}">${x.m.w ? "W" : "L"}</span>`, x.m.w ? "won" : "lost")).join("");
 

@@ -28,15 +28,23 @@ header.top { border-bottom: 1px solid var(--line); position: sticky; top: 0; bac
 .logo { font-weight: 700; font-size: 20px; letter-spacing: -.01em; cursor: pointer; display: flex; align-items: center; gap: 8px; text-decoration: none; }
 .logo .frog { font-size: 22px; }
 .top .grow { flex: 1; }
-.searchbox { position: relative; flex: 1; max-width: 360px; }
-.searchbox input { width: 100%; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: 15px; outline: none; }
+.searchbox { position: relative; flex: 1; max-width: 360px; min-width: 0; }
+.searchbox input { width: 100%; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: 15px; outline: none; text-overflow: ellipsis; }
 .searchbox input:focus { border-color: var(--accent); }
 .ac { position: absolute; top: 46px; left: 0; right: 0; background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; z-index: 40; max-height: 60vh; overflow-y: auto; }
 .ac li { list-style: none; padding: 11px 14px; display: flex; align-items: center; gap: 9px; cursor: pointer; }
 .ac li:hover, .ac li.active { background: #222b3a; }
-.ac li .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* name has priority: it always keeps at least the first name. Under tight space the lower-
+   priority labels drop in order — year first, then the win-rate badge — so the name stays. */
+.ac li .nm { flex: 1 1 auto; min-width: 4.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ac .badges { display: flex; align-items: center; gap: 5px; flex: none; }
 .ac .h { font-weight: 700; font-size: 12.5px; flex: none; }
+@media (max-width: 600px) {
+  .top .grow { display: none; }       /* let the header search use the width */
+  .searchbox { max-width: none; }
+  .ac .h { display: none; }            /* drop the year range first */
+  .ac .tbadge { display: none; }       /* then the win-rate badge; keep name + hop-count badge */
+}
 /* search infographic badges */
 .kbadge { border-radius: 6px; padding: 1px 7px; font-size: 12px; font-weight: 700; white-space: nowrap; color: #fff; }
 .kbadge.loyal { background: #2b7fff; color: #fff; }
@@ -53,7 +61,7 @@ header.top { border-bottom: 1px solid var(--line); position: sticky; top: 0; bac
 .hero h1 .frog { -webkit-text-fill-color: initial; }
 .hero p { color: var(--muted); font-size: clamp(16px, 4.4vw, 20px); margin: 18px auto 0; max-width: 30em; }
 .hero .heroSearch { max-width: 460px; margin: 26px auto 0; }
-.hero .heroSearch input { width: 100%; padding: 16px 18px; font-size: 17px; border-radius: 14px; border: 1.5px solid var(--line); background: var(--panel); color: var(--ink); outline: none; }
+.hero .heroSearch input { width: 100%; padding: 16px 18px; font-size: 17px; border-radius: 14px; border: 1.5px solid var(--line); background: var(--panel); color: var(--ink); outline: none; text-overflow: ellipsis; }
 .hero .heroSearch input:focus { border-color: var(--accent); }
 
 /* national stat strip */
