@@ -133,6 +133,8 @@ for uid, g in b.groupby("candidate_uid"):
         "n_returns": n_returns,
         "n_cross": n_cross,
         "career_win_rate": round(career_wins / len(g), 4),
+        # every state the candidate has contested in — powers the leaderboard state filter
+        "states": sorted(g["state"].dropna().unique().tolist()),
     }
     index.append(rec)
     if len(g) >= 2:  # only multi-contest candidates get a trajectory file
@@ -153,7 +155,7 @@ slim = [{"s": x["slug"], "n": x["name"], "c": x["n_contests"], "h": x["n_switche
 switchers = [x for x in index if x["n_switches"] > 0]
 LB_KEYS = ("slug", "name", "n_switches", "n_parties", "first_year", "last_year",
            "parties", "path", "wins", "n_wins", "win_rate", "n_returns", "n_cross",
-           "career_win_rate")
+           "career_win_rate", "states")
 lb_top = [{k: x[k] for k in LB_KEYS} for x in switchers]
 
 top_routes = sorted(routes.items(), key=lambda kv: -kv[1]["n"])[:25]
@@ -180,6 +182,7 @@ leaderboard = {
     "inflows": [{"party": p, "n": n} for p, n in inflows],
     "outflows": [{"party": p, "n": n} for p, n in outflows],
     "by_year": [{"year": y, "n": switch_years[y]} for y in sorted(switch_years)],
+    "states": sorted(b["state"].dropna().unique().tolist()),  # state-filter dropdown options
 }
 (OUT / "leaderboard.json").write_text(json.dumps(leaderboard, separators=(",", ":")))
 
@@ -198,7 +201,7 @@ for (to, yr), d in org:
 # ---- loyalists by career win-rate (lazy; "Loyal & true" board) ----
 loyal = [{"slug": x["slug"], "name": x["name"], "party": x["last_party"],
           "n_contests": x["n_contests"], "win_rate": x["career_win_rate"],
-          "first_year": x["first_year"], "last_year": x["last_year"]}
+          "first_year": x["first_year"], "last_year": x["last_year"], "states": x["states"]}
          for x in index if x["n_switches"] == 0 and x["n_contests"] >= 3]
 loyal.sort(key=lambda x: (-x["win_rate"], -x["n_contests"], x["name"]))
 (OUT / "loyal.json").write_text(json.dumps(loyal, separators=(",", ":")))
@@ -207,7 +210,7 @@ loyal.sort(key=lambda x: (-x["win_rate"], -x["n_contests"], x["name"]))
 veterans = sorted(index, key=lambda x: (-x["n_contests"], -(x["last_year"] - x["first_year"]), x["name"]))[:300]
 vets_out = [{"slug": x["slug"], "name": x["name"], "path": x["path"], "wins": x["wins"],
              "n_contests": x["n_contests"], "n_switches": x["n_switches"],
-             "first_year": x["first_year"], "last_year": x["last_year"]}
+             "first_year": x["first_year"], "last_year": x["last_year"], "states": x["states"]}
             for x in veterans]
 (OUT / "veterans.json").write_text(json.dumps(vets_out, separators=(",", ":")))
 

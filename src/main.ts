@@ -11,12 +11,12 @@ interface Slim { s: string; n: string; c: number; h: number; p: number; lp: stri
 interface Contest { year: number; election: string; date: string; seat: string; state: string; party: string; party_canon: string; coalition: string | null; result: string; votes_perc: number | null; hop: boolean; }
 interface Switch { year: number; from: string; to: string; cross_coalition: boolean; win: boolean; vs_old: "beat" | "lost_to" | null; return: boolean; }
 interface Cand { uid: string; slug: string; name: string; sex: string; n_contests: number; n_parties: number; n_switches: number; first_year: number; last_year: number; last_party: string; parties: string[]; path: string[]; wins: boolean[]; n_wins: number; win_rate: number | null; n_returns: number; n_cross: number; career_win_rate: number; contests: Contest[]; switches: Switch[]; }
-interface LBRec { slug: string; name: string; n_switches: number; n_parties: number; first_year: number; last_year: number; parties: string[]; path: string[]; wins: boolean[]; n_wins: number; win_rate: number | null; n_returns: number; n_cross: number; career_win_rate: number; }
+interface LBRec { slug: string; name: string; n_switches: number; n_parties: number; first_year: number; last_year: number; parties: string[]; path: string[]; wins: boolean[]; n_wins: number; win_rate: number | null; n_returns: number; n_cross: number; career_win_rate: number; states: string[]; }
 interface Route { id: string; from: string; to: string; n: number; wins: number; members: number; }
 interface Move { id: string; to: string; year: number; n: number; wins: number; }
-interface LB { top: LBRec[]; n_switchers: number; n_candidates: number; total_switches: number; routes: Route[]; events: Move[]; inflows: { party: string; n: number }[]; outflows: { party: string; n: number }[]; by_year: { year: number; n: number }[]; }
-interface Loyal { slug: string; name: string; party: string; n_contests: number; win_rate: number; first_year: number; last_year: number; }
-interface Vet { slug: string; name: string; path: string[]; wins: boolean[]; n_contests: number; n_switches: number; first_year: number; last_year: number; }
+interface LB { top: LBRec[]; n_switchers: number; n_candidates: number; total_switches: number; routes: Route[]; events: Move[]; inflows: { party: string; n: number }[]; outflows: { party: string; n: number }[]; by_year: { year: number; n: number }[]; states: string[]; }
+interface Loyal { slug: string; name: string; party: string; n_contests: number; win_rate: number; first_year: number; last_year: number; states: string[]; }
+interface Vet { slug: string; name: string; path: string[]; wins: boolean[]; n_contests: number; n_switches: number; first_year: number; last_year: number; states: string[]; }
 interface EventDetail { type: "m" | "r"; from?: string; to: string; year?: number; n: number; wins: number; members: { s: string; w: number }[]; }
 
 const esc = (s: string) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
@@ -99,9 +99,11 @@ function eventUrl(id: string) {
 }
 
 // ---- leaderboard UI state (preserved across a card visit; reset by the logo) ----
-const lbState = { mode: "jumps", level: 25 as number, sortDir: "desc" as "desc" | "asc", scrollY: 0 };
+// sortDir is per-board (each sortable board remembers its own best/worst-first), so it
+// survives board switches and card round-trips; only the logo / home reset clears it.
+const lbState = { mode: "jumps", level: 25 as number, sortDir: { timed: "desc", loyal: "desc" } as Record<string, "desc" | "asc">, state: "" as string, scrollY: 0 };
 let restoreScroll = false;
-function resetHome() { lbState.mode = "jumps"; lbState.level = 25; lbState.sortDir = "desc"; lbState.scrollY = 0; }
+function resetHome() { lbState.mode = "jumps"; lbState.level = 25; lbState.sortDir = { timed: "desc", loyal: "desc" }; lbState.state = ""; lbState.scrollY = 0; }
 
 // ---- toast ----
 function toast(msg: string) {
@@ -227,7 +229,12 @@ async function renderHome() {
       <div class="section-title">🏆 The Katak Leaderboards</div>
       <div class="lbtoggle" id="lbtoggle"></div>
       <div class="section-sub" id="lbsub"></div>
-      <div class="sortrow" id="sortrow" hidden><button id="sortbtn"></button></div>
+      <div class="statefilter">
+        <button class="sortbtn" id="sortbtn" hidden></button>
+        <label for="stateSel">Filter by state</label>
+        <select id="stateSel">${["", ...lb.states].map((s) => `<option value="${esc(s)}"${s === lbState.state ? " selected" : ""}>${s === "" ? "All" : esc(s)}</option>`).join("")}</select>
+        <span class="sf-count" id="sfCount"></span>
+      </div>
       <div class="lb" id="lb"></div>
       <div class="more" id="morerow"></div>
 
@@ -298,49 +305,55 @@ async function wireLeaderboards(lb: LB) {
   const lbEl = document.getElementById("lb")!;
   const moreEl = document.getElementById("morerow")!;
   const subEl = document.getElementById("lbsub")!;
-  const sortRow = document.getElementById("sortrow") as HTMLElement;
-  const sortBtn = document.getElementById("sortbtn")!;
+  const sortBtn = document.getElementById("sortbtn") as HTMLButtonElement;
   const toggleEl = document.getElementById("lbtoggle")!;
+  const stateSel = document.getElementById("stateSel") as HTMLSelectElement;
+  const sfCount = document.getElementById("sfCount")!;
   toggleEl.innerHTML = MODES.map((m) => `<button data-mode="${m.key}" class="${m.key === lbState.mode ? "active" : ""}">${m.label}</button>`).join("");
 
+  // final state filter: keep only members who contested in the selected state (no state = all).
+  // Applied before ranking so the displayed ranks count only the people shown.
+  const inState = (states: string[]) => !lbState.state || states.includes(lbState.state);
+
   const rowsFor = async (): Promise<string[]> => {
-    const dir = lbState.sortDir;
+    const dir = lbState.sortDir[lbState.mode];
     if (lbState.mode === "jumps")
-      return placed(lb.top, (r) => r.n_switches).map(({ r, place }) => cardRow(r.slug, r.name, r.path, null, place, String(r.n_switches), "hops"));
+      return placed(lb.top.filter((r) => inState(r.states)), (r) => r.n_switches).map(({ r, place }) => cardRow(r.slug, r.name, r.path, null, place, String(r.n_switches), "hops"));
     if (lbState.mode === "timed") {
-      const arr = lb.top.filter((r) => r.n_switches >= 2).sort((a, b) => dir === "desc"
+      const arr = lb.top.filter((r) => r.n_switches >= 2 && inState(r.states)).sort((a, b) => dir === "desc"
         ? (b.win_rate! - a.win_rate!) || (b.n_switches - a.n_switches)
         : (a.win_rate! - b.win_rate!) || (b.n_switches - a.n_switches));
       return placed(arr, (r) => `${pct(r.win_rate!)}|${r.n_switches}`).map(({ r, place }) => cardRow(r.slug, r.name, r.path, r.wins, place, `${pct(r.win_rate!)}<span class="pct">%</span>`, `${r.n_wins}/${r.n_switches} won`, landingCls(r.win_rate)));
     }
     if (lbState.mode === "loyal") {
-      const arr = (await loadLoyal()).slice().sort((a, b) => dir === "desc"
+      const arr = (await loadLoyal()).filter((r) => inState(r.states)).sort((a, b) => dir === "desc"
         ? (b.win_rate - a.win_rate) || (b.n_contests - a.n_contests)
         : (a.win_rate - b.win_rate) || (b.n_contests - a.n_contests));
       return placed(arr, (r) => `${pct(r.win_rate)}|${r.n_contests}`).map(({ r, place }) => cardRow(r.slug, r.name, [r.party], null, place, `${pct(r.win_rate)}<span class="pct">%</span>`, `${r.n_contests} elections`, landingCls(r.win_rate)));
     }
     if (lbState.mode === "boom") {
-      const arr = lb.top.filter((r) => r.n_returns >= 1).sort((a, b) => (b.n_returns - a.n_returns) || (b.n_switches - a.n_switches));
+      const arr = lb.top.filter((r) => r.n_returns >= 1 && inState(r.states)).sort((a, b) => (b.n_returns - a.n_returns) || (b.n_switches - a.n_switches));
       return placed(arr, (r) => r.n_returns).map(({ r, place }) => cardRow(r.slug, r.name, r.path, null, place, String(r.n_returns), r.n_returns === 1 ? "return" : "returns"));
     }
     if (lbState.mode === "cross") {
-      const arr = lb.top.filter((r) => r.n_cross >= 1).sort((a, b) => (b.n_cross - a.n_cross) || (b.n_switches - a.n_switches));
+      const arr = lb.top.filter((r) => r.n_cross >= 1 && inState(r.states)).sort((a, b) => (b.n_cross - a.n_cross) || (b.n_switches - a.n_switches));
       return placed(arr, (r) => r.n_cross).map(({ r, place }) => cardRow(r.slug, r.name, r.path, null, place, String(r.n_cross), r.n_cross === 1 ? "crossing" : "crossings"));
     }
     // vets
-    const arr = await loadVets();
+    const arr = (await loadVets()).filter((r) => inState(r.states));
     return placed(arr, (r) => r.n_contests).map(({ r, place }) => cardRow(r.slug, r.name, r.path, null, place, String(r.n_contests), "elections"));
   };
 
   const render = async () => {
     const rows = await rowsFor();
     const shown = rows.slice(0, lbState.level);
-    lbEl.innerHTML = shown.join("");
+    lbEl.innerHTML = rows.length ? shown.join("") : `<div class="lb-empty">No one who contested in <b>${esc(lbState.state)}</b> appears on this board.</div>`;
     lbEl.querySelectorAll(".row").forEach((r) => r.addEventListener("click", () => { lbState.scrollY = window.scrollY; go(`p/${(r as HTMLElement).dataset.slug}/`); }));
     subEl.textContent = SUBS[lbState.mode];
+    sfCount.textContent = lbState.state ? `${rows.length} ${rows.length === 1 ? "person" : "people"}` : "";
     const sortable = MODES.find((m) => m.key === lbState.mode)?.sortable;
-    sortRow.hidden = !sortable;
-    if (sortable) sortBtn.textContent = lbState.sortDir === "desc" ? "Best first  ↓" : "Worst first  ↑";
+    sortBtn.hidden = !sortable;
+    if (sortable) sortBtn.textContent = lbState.sortDir[lbState.mode] === "desc" ? "Best first  ↓" : "Worst first  ↑";
     const btns: string[] = [];
     if (lbState.level > 25) btns.push(`<button data-act="less">← see less</button>`);
     if (lbState.level < rows.length) btns.push(`<button data-act="more">see more 🐸</button>`);
@@ -355,11 +368,12 @@ async function wireLeaderboards(lb: LB) {
   toggleEl.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
     const m = (b as HTMLElement).dataset.mode!;
     if (m === lbState.mode) return;
-    lbState.mode = m; lbState.level = 25; lbState.sortDir = "desc";
+    lbState.mode = m; lbState.level = 25;
     toggleEl.querySelectorAll("button").forEach((x) => x.classList.toggle("active", (x as HTMLElement).dataset.mode === m));
     render();
   }));
-  sortBtn.addEventListener("click", () => { lbState.sortDir = lbState.sortDir === "desc" ? "asc" : "desc"; lbState.level = 25; render(); });
+  sortBtn.addEventListener("click", () => { lbState.sortDir[lbState.mode] = lbState.sortDir[lbState.mode] === "desc" ? "asc" : "desc"; lbState.level = 25; render(); });
+  stateSel.addEventListener("change", () => { lbState.state = stateSel.value; lbState.level = 25; render(); });
   await render();
 }
 
@@ -400,9 +414,10 @@ async function renderEvent(key: string) {
       </div>
     </div>
     <div class="lb" style="margin-top:18px">${rows}</div>
+    <button class="backlink bottom">← Leaderboard</button>
     ${footer()}
   </div></main>`;
-  document.getElementById("back")!.onclick = () => backToHome();
+  app.querySelectorAll(".backlink").forEach((b) => ((b as HTMLElement).onclick = () => backToHome()));
   app.querySelectorAll(".lb .row").forEach((r) => r.addEventListener("click", () => go(`p/${(r as HTMLElement).dataset.slug}/`)));
   window.scrollTo(0, 0);
 }
@@ -471,6 +486,7 @@ async function renderCand(slug: string) {
       <div class="verdicts">${chips.join("")}</div>
     </div>
     <div class="timeline">${items.join("")}</div>
+    <button class="backlink bottom">← Leaderboard</button>
     <div class="sharebar">
       <button class="primary" id="copy">🔗 Copy link</button>
       <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(pageUrl)}" target="_blank" rel="noopener">𝕏 Share</a>
@@ -478,7 +494,7 @@ async function renderCand(slug: string) {
     </div>
     ${footer()}
   </div></main>`;
-  document.getElementById("back")!.onclick = () => backToHome();
+  app.querySelectorAll(".backlink").forEach((b) => ((b as HTMLElement).onclick = () => backToHome()));
   document.getElementById("copy")!.onclick = () => { navigator.clipboard?.writeText(pageUrl); toast("Link copied"); };
   window.scrollTo(0, 0);
 }
