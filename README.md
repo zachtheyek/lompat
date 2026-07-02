@@ -106,7 +106,7 @@ Part of a family of civic data-viz tools built on the Malaysian Election Corpus:
 
 - [**Undi Wrapped**](https://zachtheyek.github.io/undi-wrapped/) — your constituency's election story, Spotify-Wrapped style
 - [**Salasilah**](https://zachtheyek.github.io/salasilah/) — the family tree of Malaysia's parties & coalitions
-- [**Nadi Demokrasi**](https://zachtheyek.github.io/nadi-demokrasi/) — the health of the democracy in six indicators
+- [**Nadi Demokrasi**](https://zachtheyek.github.io/nadi-demokrasi/) — the health of the democracy in fourteen indicators
 - [**Undi Lain**](https://zachtheyek.github.io/undi-lain/) — re-run past elections under different voting systems
 - [**Undi Generasi**](https://zachtheyek.github.io/undi-generasi/) — how Malaysia votes across generations
 
